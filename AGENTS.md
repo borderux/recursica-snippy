@@ -80,6 +80,12 @@ assume none of that is obvious from a local diff alone.
   must pass before committing; the pre-commit hook (Husky + lint-staged)
   runs them automatically on staged files, but run them yourself first
   when in doubt
+- `npm run build` runs `npm run lint` first, and the pull-request workflow
+  (`.github/workflows/pull-request.yml`) runs `npm ci` and `npm run build`,
+  so a lint or type error fails CI
+- Every user-facing change needs a changeset (`npx changeset`): the release
+  workflow turns pending changesets into the version bump and
+  `CHANGELOG.md`. Don't edit `CHANGELOG.md` or the version by hand
 - Don't add a test framework as a side effect of an unrelated change - if
   one seems genuinely needed, raise it as its own decision. Playwright is
   used ad hoc for verification and is not a dependency of this repo

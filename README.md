@@ -140,8 +140,9 @@ Runs lint and the type check, bundles the panel with Vite into a single
 `content.js`, and writes browser-specific bundles to `dist/chrome` and
 `dist/firefox`. Two manifests are needed because Chrome's MV3 requires a
 `service_worker` background and Firefox's MV3 still wants
-`background.scripts` — everything else (`background.js`, `content.js`) is
-shared, unmodified, between both.
+`background.scripts`, and Firefox also needs its own add-on id
+(`browser_specific_settings.gecko.id`). Everything else (`background.js`,
+`content.js`) is shared, unmodified, between both.
 
 ## Extension icon
 
@@ -161,6 +162,7 @@ icon.
     npm run lint        # ESLint, then the TypeScript type check
     npm run typecheck   # the type check alone
     npm run format
+    npm run package-extension   # zip dist/chrome and dist/firefox into release-zips/
 
 The panel lives in `src/content/` (React + TypeScript). `npm install` also
 wires up a Husky pre-commit hook (via `prepare`) that runs Prettier, ESLint

@@ -1,8 +1,9 @@
 # Snippy
 
 > A Manifest V3 browser extension (Chrome and Firefox) for capturing UI/UX
-> feedback on any website - text comments and screenshots, organized into a
-> session, exported as a self-contained HTML report.
+> feedback on any website - comments, screenshots and captured page elements,
+> with annotations, organized into a session, exported as a self-contained
+> HTML report.
 
 No backend and no site-side integration required - a reviewer clicks the
 toolbar icon on any tab and a slide-out panel appears. The panel is React +
@@ -12,22 +13,26 @@ TypeScript on the Recursica design system, bundled by Vite.
 
 - [README](README.md): What this is, how to build it, how to load it in
   Chrome/Firefox, and the local development scripts.
-- [ARCHITECTURE](ARCHITECTURE.md): Injection/lifecycle model, the storage
+- [ARCHITECTURE](ARCHITECTURE.md): Injection/lifecycle model, the
   shadow-root styling model, the storage data model, the report format,
-  the build, and the migration discipline required for any data-shape
-  change.
+  the build, release and CI, and the migration discipline required for any
+  data-shape change.
 - [AGENTS](AGENTS.md): Rules for AI agents making changes to this codebase -
   read this and ARCHITECTURE.md before planning a change.
 
 ## Layout
 
 - `src/manifest.chrome.json`, `src/manifest.firefox.json` - Per-browser MV3
-  manifests. Differ only in their `background` block.
+  manifests. Differ in their `background` block and in Firefox's
+  `browser_specific_settings.gecko.id`.
 - `src/background.js` - Service worker: injects `content.js` on toolbar
   click, captures screenshots on request from the content script.
 - `src/content/` - The panel (React + TypeScript): entry and mount,
-  components, session state, screenshot capture, and the downloaded
-  report's HTML generation (`lib/report.ts`). Bundled into `content.js`
+  components, session state, screenshot and element capture, annotations,
+  and the downloaded report's HTML generation. The pure logic sits in
+  `lib/` (`annotations`, `capture`, `captureFrame`, `element`,
+  `environment`, `format`, `ids`, `links`, `page`, `pen`, `recursica`,
+  `report`, `shortcuts`, `storage`, `types`). Bundled into `content.js`
   and re-injected fresh on every toolbar click.
 - `src/report.css` - Styles the downloaded report only. Inlined into
   `content.js` at build time, not loaded at runtime.
@@ -37,6 +42,12 @@ TypeScript on the Recursica design system, bundled by Vite.
   `content.js`, and scopes every stylesheet to the panel's shadow root.
 - `scripts/make-icons.mjs` - Generates the four icon sizes in
   `src/icons/` from one source PNG (`npm run icons -- <source.png>`).
+  `src/icons/source.svg` is the vector source of the icon.
+- `scripts/package-extension.mjs` - Zips `dist/chrome` and `dist/firefox`
+  into `release-zips/snippy-<browser>-v<version>.zip` (`npm run package-extension`).
+- `scripts/lint-staged.config.cjs`, `.husky/` - The pre-commit hook that
+  runs Prettier, ESLint and the type check on staged files.
+- `eslint.config.mjs`, `.prettierignore` - Lint and format configuration.
 - `build.js` - Runs the Vite build, then copies `content.js`,
   `background.js` and the icons into `dist/chrome` and `dist/firefox`,
   pairing each with its own manifest.
