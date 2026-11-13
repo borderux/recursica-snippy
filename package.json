@@ -1,7 +1,7 @@
 {
   "name": "snippy",
   "private": true,
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Snippy by Recursica: capture comments, screenshots and page elements on any website, annotate them, and export one HTML report.",
   "homepage": "https://recursica.com",
   "repository": {
