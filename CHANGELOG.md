@@ -1,5 +1,17 @@
 # snippy
 
+## 0.4.0
+
+### Minor Changes
+
+- 6230f56: Snippy now opens in Chrome's side panel. It stays open as you move between pages, sites and tabs in a window, always showing the active tab's comments, and Chrome's own side panel controls resize and close it. Captures work as before, without hiding the panel: drag on the page for a screenshot, or pick an element by mouse or with the arrow keys and Enter, even with focus in the panel. Add annotations opens the screenshot in a new tab beside the page, with the main window's room to draw in; saving or cancelling closes it and returns to the page. On pages Snippy can't reach (browser pages, the Chrome Web Store) the panel says so and Add is turned off. Snippy is now Chrome only; the Firefox version is discontinued. The extension now needs access to all websites and Chrome's side panel permission, which Chrome asks you to approve when it updates. The panel's stored width is no longer used and is removed.
+
+### Patch Changes
+
+- 6230f56: Deleting the screenshot from an element comment now deletes the captured element details (its selector, HTML and styles) too, instead of leaving the element's selector behind on the comment.
+- 6230f56: Snippy is now built on version 1.5.0 of the Recursica Mantine adapter, set up the way the adapter's setup guide describes, with Snippy's own Recursica Forge theme export. The panel header now has the design system's Close button, which closes the side panel, and pressing Escape closes the side panel too (except while a dialog is open or a capture is under way, where Escape still only cancels that).
+- 6230f56: The View options ("Only view comments for this url" and "Show screenshot thumbnails") now sit at the top of the panel, above the comments, instead of after the last comment.
+
 ## 0.3.0
 
 ### Minor Changes
