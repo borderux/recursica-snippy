@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Zips each built dist/<browser> folder into a versioned release asset -
+// Zips the built dist/chrome folder into a versioned release asset -
 // run after `npm run build`, as part of the release workflow once
 // Changesets has bumped package.json's version.
 import fs from "fs";
@@ -15,7 +15,8 @@ const { version } = JSON.parse(
 );
 
 const OUT_DIR = path.join(rootDir, "release-zips");
-const BROWSERS = ["chrome", "firefox"];
+// Chrome only: Snippy's panel is Chrome's side panel.
+const BROWSERS = ["chrome"];
 
 function zipBrowser(browser) {
   const sourceDir = path.join(rootDir, "dist", browser);
@@ -35,8 +36,8 @@ function zipBrowser(browser) {
 
     // false as the destpath flattens sourceDir's contents to the zip's own
     // root, so manifest.json ends up at the top level of the archive -
-    // exactly what "Load unpacked" (Chrome) and a signed .xpi (Firefox)
-    // both expect, not nested under a "chrome/" or "firefox/" folder.
+    // exactly what "Load unpacked" and the Chrome Web Store expect, not
+    // nested under a "chrome/" folder.
     archive.directory(sourceDir, false);
     archive.finalize();
   });

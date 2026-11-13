@@ -5,14 +5,16 @@ import js from "@eslint/js";
 import globals from "globals";
 import tseslint from "typescript-eslint";
 import reactHooks from "eslint-plugin-react-hooks";
+import recursica from "@recursica/eslint-plugin";
 
 export default [
   { ignores: ["dist/**", "node_modules/**", "release-zips/**"] },
   {
-    // The injected panel: React + TypeScript, bundled by Vite into one
-    // content script. Runs in a page's own browser context, plus the
-    // chrome.* extension APIs. Type checking itself is `npm run typecheck`.
-    files: ["src/content/**/*.{ts,tsx}"],
+    // The side panel (React + TypeScript), the page helper injected into
+    // reviewed pages, and the modules they share - all bundled by Vite,
+    // all with the DOM and the chrome.* extension APIs. Type checking
+    // itself is `npm run typecheck`.
+    files: ["src/{panel,page,lib}/**/*.{ts,tsx}"],
     languageOptions: {
       parser: tseslint.parser,
       ecmaVersion: 2022,
@@ -35,6 +37,13 @@ export default [
     },
   },
   {
+    // Recursica's own rules (recommended in the adapter's SETUP.md) on the
+    // JSX the side panel and the editor tab are built from: no use of the
+    // adapter's overStyled escape hatch.
+    files: ["src/panel/**/*.tsx"],
+    ...recursica.configs.recommended,
+  },
+  {
     // The service worker - no DOM, but the same chrome.* APIs.
     files: ["src/background.js"],
     languageOptions: {
@@ -45,8 +54,8 @@ export default [
     rules: js.configs.recommended.rules,
   },
   {
-    // The Node-side build script and lint-staged config - CommonJS.
-    files: ["build.js", "scripts/**/*.cjs"],
+    // The Node-side build script, lint-staged and PostCSS configs - CommonJS.
+    files: ["build.js", "postcss.config.cjs", "scripts/**/*.cjs"],
     languageOptions: {
       ecmaVersion: 2022,
       sourceType: "commonjs",

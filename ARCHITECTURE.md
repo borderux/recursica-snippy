@@ -2,63 +2,75 @@
 
 ## Overview
 
-Snippy is a Manifest V3 browser extension (Chrome and Firefox) that lets a
-reviewer leave feedback on any website without that site embedding anything.
-A comment can be text only, or carry a screenshot, a captured page element,
-and annotations drawn on the screenshot. Feedback is grouped into a single
-**session** spanning every page the reviewer visits, and exported as a
-self-contained HTML report.
+Snippy is a Manifest V3 Chrome extension that lets a reviewer leave feedback
+on any website without that site embedding anything. A comment can be text
+only, or carry a screenshot, a captured page element, and annotations drawn
+on the screenshot. Feedback is grouped into a single **session** spanning
+every page the reviewer visits, and exported as a self-contained HTML report.
 
-There is no backend. The live panel is React + TypeScript, built from the
-Recursica design system and bundled by Vite into one content script.
-`build.js` runs that build and writes browser-specific bundles to
-`dist/chrome` and `dist/firefox` (see [Build](#build)).
+The panel is **Chrome's side panel** (`chrome.sidePanel`): Chrome owns it,
+opens it from the toolbar, keeps it open across page loads, sites and tabs in
+a window, and lets the reviewer resize and close it. It is an extension page
+(`sidepanel.html`) running React + TypeScript, built from the Recursica
+design system. It can't touch the reviewed page itself, so a small **page
+helper** (`page.js`) is injected into the active tab for everything that
+must: the capture overlays, element picking, and reading the page's context.
+The annotation editor needs more room than the side panel has, so it opens
+in a tab of its own (`annotate.html`), beside the reviewed page.
+Chrome only: Firefox has no `chrome.sidePanel`.
+
+There is no backend. `build.js` runs two Vite builds and writes the
+extension to `dist/chrome` (see [Build](#build)).
 
 ## Components
 
 ### Extension shell
 
-- **`src/manifest.chrome.json` / `src/manifest.firefox.json`** - Two
-  manifests, because Chrome's MV3 requires `background.service_worker` and
-  Firefox's MV3 still wants `background.scripts`. They differ in exactly two
-  places: that `background` block, and Firefox's
-  `browser_specific_settings.gecko.id` (`snippy@borderux.com`). Everything
-  else, including permissions and `web_accessible_resources`, is identical.
-  Neither carries a `version`; the build writes it.
+- **`src/manifest.json`** - The manifest. It carries no `version`; the build
+  writes it. `side_panel.default_path` is `sidepanel.html`.
 - **`src/background.js`** - The service worker, plain unbundled JavaScript,
-  with two jobs. It injects `content.js` into the active tab on toolbar-icon
-  click (`chrome.action.onClicked` + `chrome.scripting.executeScript`). It
-  also captures a screenshot when the panel sends a `snippy:capture` message
-  (`chrome.tabs.captureVisibleTab`, since only the background context can
-  capture pixels). Injection failures (chrome://, the Web Store, the PDF
-  viewer - anywhere `activeTab` doesn't reach) show as a red `!` toolbar
-  badge instead of failing silently; a later success clears it.
+  with one job: `chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick:
+true })`, so the toolbar icon (and its keyboard command) opens the side
+  panel. Run on every worker start, not only on install.
 
-### The panel (`src/content/`)
+### The side panel (`src/panel/`)
 
-Re-injected fresh on every toolbar click (see
-[Injection & lifecycle](#injection--lifecycle)).
-
-- `main.tsx` - entry point: toggles the panel open or closed.
-- `mount.tsx` - builds the host element (`#snippy-host`), shadow root,
-  stylesheet and React root.
-- `App.tsx` - the Mantine provider, configured for the shadow root, and the
-  Recursica layer-0 scope.
-- `ReviewPanel.tsx` - the panel shell: open and close, Escape, focus, the
-  footer (Start over and Download report), the toast, the modals, and the
-  failed-load state.
+- `sidepanel.html`, `main.tsx` - the page Chrome loads into the side panel,
+  and its entry point.
+- `annotate.html`, `annotate.tsx` - the annotation editor's tab (see
+  [The annotation editor's tab](#the-annotation-editors-tab)).
+- `boot.tsx` - what both pages share on start: imports the stylesheets,
+  sets the colour scheme, registers the fonts, loads storage and renders
+  the app.
+- `App.tsx` - the Mantine provider and the Recursica layer-0 scope, with
+  its portals. The editor's tab declares layer 0 on a plain element rather
+  than the `Layer` component, which would paint an empty padded surface
+  there.
+- `ReviewPanel.tsx` - the panel shell: the Add menu, captures, shortcuts,
+  focus, the footer (Start over and Download report), the toast, the modals,
+  and the failed-load and no-access states.
+- `useActiveTab.ts` - the tab the panel is showing (the active tab of its
+  window), its page key and title, and whether the page helper could be
+  installed there.
+- `pageBridge.ts` - the panel's side of the page helper: installs it, calls
+  it, and captures and crops screenshots.
+- `usePagePorts.ts` - the ports page helpers open to the panel, for
+  shortcuts pressed with focus on the page.
+- `useAnnotationTabs.ts`, `annotateApi.ts` - opening the annotation editor's
+  tab, and the message it sends back when it closes.
 - `useReviewSession.ts` - all session state and saving.
-- `usePageKey.ts` - the current page key, re-read as the address changes.
 - `useColorScheme.ts` - follows `prefers-color-scheme` live.
 - `modalPortal.ts` - hands every modal its layer-1 portal container.
-- `styles.ts`, `panel.css`, `fonts.ts` - see
-  [Styling inside the shadow root](#styling-inside-the-shadow-root).
+- `dom.ts` - finding things in the panel, the modal `inert` handling, and
+  `markPanelNonModal()`.
+- `fonts.ts`, `panel.css` - see [Styling](#styling).
 - `components/`:
   - `CommentList` - the one view: the current page's comments, or every
-    page's grouped under page headings that each link to their page (same
-    tab).
+    page's grouped under page headings that each link to their page (opened
+    in the reviewed tab).
   - `ViewOptions` - two checkboxes, "Only view comments for this url" and
-    "Show screenshot thumbnails", at the end of the scrolling list.
+    "Show screenshot thumbnails", at the top of the scrolling list, above
+    the comments.
   - `AddMenu` - a small icon-only plus button left of the panel title, with
     Comment, Screenshot and Element. It is rendered into a slot placed first
     in the header (see [Adapter workarounds](#adapter-workarounds)).
@@ -68,13 +80,24 @@ Re-injected fresh on every toolbar click (see
     details every time a report is downloaded.
   - `AnnotationEditor` - see below.
   - `ConfirmModal` - the shared confirmation modal.
-  - `ResizeHandle` - the resize strip on the panel's left edge.
-  - `useManagedMenu` - menu focus handling that works in a shadow root.
-- `lib/` - framework-free modules: `storage` (persistence, migration),
-  `types`, `page` (page key and push), `capture`, `captureFrame` and
-  `element` (the capture overlays), `annotations` and `pen`, `environment`,
-  `recursica` (page detection), `report`, `links`, `ids`, `format`,
-  `shortcuts`.
+  - `useManagedMenu` - menu focus handling (see Adapter workarounds).
+
+### The page helper (`src/page/`)
+
+`main.ts`, built into `page.js`, a classic script injected into the reviewed
+page. It installs once per document, exposes `globalThis.snippyPage` in the
+extension's isolated world, and draws nothing but the capture overlays. See
+[Lifecycle](#lifecycle).
+
+### Shared modules (`src/lib/`)
+
+Framework-free, used by the panel, the page helper or both: `storage`
+(persistence, migration), `types`, `pageKey`, `pageApi` (the helper's API
+and port messages, types only), `capture` (region selection), `element`
+(element picking and serializing), `captureFrame` and `overlay` (the
+overlays' frame and the active overlay), `annotations` and `pen`,
+`environment`, `recursica` (page detection), `report`, `links`, `ids`,
+`format`, `shortcuts`.
 
 **The annotation editor** has a fixed toolbar and a bordered, scrolling image
 below it. The toolbar holds the tool control (Select, Pen, Arrow, Numbered
@@ -84,12 +107,47 @@ unselected, so the add tool keeps adding. With the Select tool they are tab
 stops: they can be selected, dragged, moved with the arrow keys, deleted with
 Delete or Backspace, and undone and redone with Cmd/Ctrl+Z and
 Cmd/Ctrl+Shift+Z. Its own confirmations (discard changes, clear annotations,
-delete screenshot) stack on it.
+delete screenshot) stack on it. It is a modal, alone in its own tab (below).
+
+### The annotation editor's tab
+
+At the side panel's width the editor's title and footer were cut off, so
+Add annotations opens `annotate.html?page=<page key>&id=<comment id>` in a
+new tab, right after the reviewed tab and active, where the editor has the
+main window's width (up to the kit's modal maximum). The side panel stays
+open beside it.
+
+- **One writer.** The side panel stays the only thing that changes the
+  session while it is open. Before opening the tab it writes any pending
+  typing (`flush`), and the editor reads the comment from storage. When
+  the editor closes - Save, Delete screenshot, Cancel, Escape - it sends the
+  panel an `AnnotateDone` message (`annotateApi.ts`): the fields to store,
+  or null, and the screenshot it drew on. Messages are JSON, which drops
+  `undefined`, so fields to remove travel as a list of names (`toWire`,
+  `fromWire`). The panel stores them only while
+  the comment still has that screenshot, switches back to the reviewed tab,
+  and answers; the editor then closes its own tab.
+- **No panel.** If no panel answers (the reviewer closed the side panel
+  meanwhile), the editor writes the change to storage itself. Nothing else
+  is writing then. A panel reopened while an editor is open answers for
+  editors in its window, since it would otherwise write over the change
+  with its own copy of the session.
+- **One editor per comment.** Asking again switches to the open editor's
+  tab. An editor whose screenshot is gone from the panel (the comment
+  deleted, the screenshot replaced or deleted, Start over) has its tab
+  closed: what it was drawing on no longer exists.
+- **Leaving.** Closing the tab, reloading it or going elsewhere with
+  unsaved annotations asks first (`beforeunload`), as Cancel does.
+- **The panel meanwhile.** Chrome doesn't give the panel an extension
+  page's address without the `tabs` permission, so the panel recognises
+  the editor tabs by the ids it opened. With one active, the panel keeps
+  showing that editor's page's comments, Add is disabled, and a message
+  says the active tab is the editor.
 
 ### Build inputs and tooling
 
 - **`src/report.css`** - Styles the _downloaded report_, not the live panel.
-  Inlined into `content.js` at build time, because a downloaded standalone
+  Inlined into the panel's script at build time, because a downloaded standalone
   HTML file can't fetch a sibling stylesheet.
 - **`src/ai-report-instructions.txt`** - Plain-text instructions for an AI
   agent reading a downloaded report, also inlined at build time. See
@@ -101,60 +159,70 @@ delete screenshot) stack on it.
 - **`.github/workflows/`, `.changeset/`, `.husky/`** - see
   [Release and CI](#release-and-ci).
 
-## Injection & lifecycle
+## Lifecycle
 
-Permissions are deliberately minimal: `activeTab`, `scripting`, `storage` and
-`unlimitedStorage`, with no `host_permissions`. `content.js` only ever runs
-because the user clicked the toolbar icon (or its keyboard command), which is
-what makes `activeTab` sufficient. `unlimitedStorage` lifts the 10 MB
-`chrome.storage.local` quota: screenshots and captured element HTML live in
-the session, and a long review would otherwise fill it.
+Permissions: `sidePanel`, `scripting`, `storage` and `unlimitedStorage`, plus
+`host_permissions` of `<all_urls>`. The host permission is what lets the
+panel inject the page helper into whatever page the active tab shows, and
+capture it (`captureVisibleTab`), on every site the reviewer moves to.
+`unlimitedStorage` lifts the 10 MB `chrome.storage.local` quota: screenshots
+and captured element HTML live in the session, and a long review would
+otherwise fill it.
 
-The Firefox add-on id is `snippy@borderux.com`. The earlier product, Alan
-Review Tool, used `alan-review-tool@borderux.com`. Firefox keys an add-on's
-storage by id, so existing Firefox users of that product start with no data.
-On Chrome the extension id does not change, which is why the
-[storage-key migration](#storage-keys) still matters.
+**The panel.** The toolbar icon opens the side panel (the background sets
+`openPanelOnActionClick`); Chrome's own close button closes it. One panel
+serves a whole window (`side_panel.default_path`, no per-tab panels), so it
+follows the active tab: `useActiveTab()` reads it with `chrome.tabs.query`
+and keeps it current from `tabs.onActivated`, `tabs.onUpdated` (address,
+title and load state, including single-page-app navigations, which Chrome
+reports as an address change) and `tabs.onAttached`/`onDetached`. The panel
+can read a tab's address and title because of the host permission; no `tabs`
+permission is needed. The panel has no open or close transition of its own,
+never moves focus on open, and never touches the page's layout.
 
-Each click re-injects `content.js` from scratch. `main.tsx` starts by
-checking for an existing panel host (`#snippy-host`):
+**The page helper.** Once the active tab's page has loaded, the panel injects
+`page.js` (`ensureHelper()` in `pageBridge.ts`) unless `globalThis.snippyPage`
+is already there. The helper:
 
-- **Found: close.** It dispatches a cancelable `snippy:close` event on the
-  host. The script instance that owns the panel listens for it, calls
-  `preventDefault()`, saves anything still pending, slides the panel out,
-  then unmounts React, removes the host and restores the page. If nothing
-  answers (the owning instance is gone, for example after the extension was
-  reloaded), the new instance removes the host itself.
-- **Not found: open.** `mount.tsx` loads storage, then builds the panel.
+- exposes `selectRegion`, `pickElement`, `context`, `detectRecursica`, `key`
+  and `cancel`, which the panel calls with `chrome.scripting.executeScript`
+  (a function that calls `globalThis.snippyPage[method]`, in the same
+  isolated world). Results are plain data, and the panel runs them through
+  the same sanitizers as stored data.
+- opens a port (`snippy-page`) to the extension. Every open side panel hears
+  it; each listens only to the helper in its own active tab. Through it the
+  helper forwards Snippy's shortcuts pressed with focus on the page, and the
+  panel says when shortcuts may run.
+- removes itself when the port disconnects (every panel that could hear it
+  has closed): it cancels any overlay, removes its key listener and deletes
+  `globalThis.snippyPage`, so the next panel installs it afresh.
+- removes a panel an earlier version of Snippy drew into the page itself
+  (`#snippy-host`, `#alan-review-tool-host`, `#tagger-host`), undoing the
+  page push it applied from that version's dataset names.
 
-Anything that must survive a close and reopen lives outside the script:
-`chrome.storage.local` for session data, panel width and reviewer identity;
-`data-snippy*` attributes on `document.documentElement` for the page's own
-pre-panel inline styles, and the fonts-registered flag.
+A page no extension may script (chrome://, the new tab page, the Chrome Web
+Store, the PDF viewer), or one with no web address, gets no helper: the panel
+shows "Snippy can't add comments on this page", Add is disabled and described
+by that message, and other pages' comments still show.
 
-The panel **pushes** the page rather than overlaying it: opening it shrinks
-`document.documentElement`'s width (with a transition). It is **non-modal**:
-no backdrop, no focus trap, no scroll lock, and the page stays usable. The
-Recursica `Panel` (Mantine's `Drawer`) defaults to modal behaviour, so
-`ReviewPanel.tsx` switches each of those off explicitly, and
-`markPanelNonModal()` removes the `aria-modal` the Drawer always sets. Escape
-closes the panel only while focus is inside it, and never while one of its
-modals is open.
+**Focus.** The panel never takes focus on open. When a modal closes, focus
+goes back to the control that opened it, or the control that replaced it;
+the panel does this itself (`returnFocus()`), because the opener may be gone.
+Escape is not handled by the panel itself: Chrome closes the side panel.
 
-While any modal is open, the host page's `<body>` and the panel content are
-made `inert` (prior values restored), so only the modal is reachable. Escape
-that starts inside a modal or a menu is never treated as closing the panel:
-Mantine closes its modal in a capture listener on `window`, before React's
-handler runs, so the panel checks where the key came from rather than
-trusting its own modal state. When the panel closes, whatever had focus on
-the page before it opened gets focus back. Pending typing is written on
-`pagehide` and when the page is hidden, so a refresh never loses it.
+While any modal is open, the panel's content and its layer-0 portal are made
+`inert` (prior values restored), so only the modal is reachable. Pending
+typing is written on `pagehide` and when the panel is hidden, so closing it
+never loses typing.
 
 ### Capture
 
 There are two screenshot modes (region selection, and the visible area) plus
-element picking. All of them draw hand-built overlays in the host page's
-light DOM, where no theme token reaches.
+element picking. The overlays are drawn by the page helper, in the reviewed
+page's light DOM, where no theme token reaches; the pixels are taken by the
+panel with `chrome.tabs.captureVisibleTab`, which captures only the tab's
+viewport, so the side panel is never in the picture and the page always has
+its full width.
 
 - **The capture frame** (`lib/captureFrame.ts`). Both screenshot modes mark
   themselves with a 2px dashed frame around the whole viewport: a black line
@@ -162,141 +230,127 @@ light DOM, where no theme token reaches.
   viewport, ignoring the pointer and never affecting layout. There is no
   tint over the page, and the region-selection rectangle is an edge with no
   fill, so what is being captured stays fully visible. The frame and every
-  other overlay element are removed before pixels are taken.
-- **Panel away** (`withPanelAway()` in `lib/capture.ts`). While a region is
-  being selected, the panel is hidden and the page gets its full width back,
-  so there is no blank strip and the capture covers the page as it really
-  lays out. The panel and the push come back afterwards on every path:
-  success, cancel or failure.
+  other overlay element are removed, and the page given two frames to
+  paint, before the helper answers and pixels are taken.
+- **Cropping.** The helper returns the selection in CSS px with the page's
+  `devicePixelRatio` (which includes the page's zoom); the panel crops the
+  capture with a canvas and stores a JPEG, with that ratio as its scale.
 - **Element picking** (`lib/element.ts`). The mouse highlights the element
   under it and a click chooses; arrow up and down move to the parent and
   first child, Enter chooses, Escape cancels. The page's own handlers never
   see those clicks and keys. Open shadow roots are followed; closed ones stop
   at their host. Frames are never entered: a transparent blocker covers each
   one while picking, and choosing one says its content can't be captured.
+- **Keys from the panel.** Focus is usually in the side panel when a capture
+  starts, so while one is under way the panel forwards Escape, Enter and the
+  up and down arrows to the overlay (`lib/overlay.ts`). Keyboard-only
+  picking works without ever focusing the page.
+- **Ending.** Switching tabs during a capture cancels it, as does closing
+  the panel (the helper's port disconnects). Focus leaving the page's window
+  after it had it (alt-tab) cancels too, as before.
 
-## Styling inside the shadow root
+## Styling
 
-Everything the panel draws lives in an open shadow root on the host element,
-so its styles can't leak into the page and vice versa. Getting a Mantine- and
-Recursica-based UI to work there takes five things:
+The side panel and the editor's tab are the extension's own pages, so the
+design system is set up as the adapter's `SETUP.md` describes for any app.
 
-1. **One stylesheet, injected once.** `styles.ts` concatenates Mantine's CSS,
-   the Recursica theme variables (`recursica_variables_scoped.css`, the
-   default Forge theme as shipped in the adapter package), the adapter's
-   component CSS and `panel.css`, all imported as strings, into one `<style>`
-   in the shadow root.
-2. **`:root` retargeted at build time.** Mantine and the theme declare their
-   base variables on `:root`, which never matches inside a shadow root. A
-   PostCSS step in `vite.config.mts` rewrites `:root` to `.art-root`, the
-   panel's own root element. The same step converts the few bare `rem`
-   values in the Recursica stylesheets to px, since `rem` resolves against
-   the host page's `<html>` font size, which any site can change. Mantine's
-   own rem values are all multiplied by its scale, which `App.tsx` sets from
-   the host page's real root font size (`pageRemScale()`).
-3. **Theme and colour scheme on the panel's root, not the page's `<html>`.**
-   `data-recursica-theme` (light or dark, following `prefers-color-scheme`
-   live) and Mantine's colour-scheme attribute are both set on `.art-root`.
-   The adapter's `RecursicaThemeProvider` is not used: it writes to
-   `document.documentElement`, which here is the reviewed site's `<html>`.
-   Layer 0 is declared once, with the adapter's `Layer`, just inside it.
-4. **Portals stay inside the shadow root.** Mantine's `Portal` defaults to
-   `document.body`, which would leave tooltips and modals unstyled. The theme
-   points every portal (tooltips, menus, the toast) at `.art-portal`, a
-   container inside the layer-0 scope pinned to the viewport's top-left
-   corner (Mantine's modal positions itself assuming that) and stacked above
-   the panel. Modals use a second container of the same kind that declares
-   `data-recursica-layer="1"`, so every modal sits on layer 1. It is a plain
-   element carrying the attribute rather than the adapter's `Layer`
-   component, because `Layer` paints its own padded surface. Mantine's focus
-   return (modals and menus) records `document.activeElement`, which inside
-   a shadow root is the host, so the panel moves focus itself.
-5. **Fonts on the document.** Chrome ignores `@font-face` inside a shadow
-   root, so `fonts.ts` adds the theme's two typefaces (Dongle, Nunito Sans,
-   bundled from Fontsource and inlined into `content.js`) to the host
-   document's `FontFaceSet`, built from bytes so no page's `font-src` policy
-   applies.
+- **Snippy's Forge export.** The theme is Snippy's own export from
+  Recursica Forge, kept as exported in the repo root:
+  `recursica_variables_scoped.css` (the theme variables),
+  `recursica_manifest.json` (passed to `RecursicaThemeProvider`) and the
+  `recursica_brand`, `recursica_tokens` and `recursica_ui-kit` JSON. A new
+  theme is a new export dropped over these files. They are in
+  `.prettierignore`, so nothing reformats them.
+- **Stylesheets.** Mantine's CSS, then the Forge export's
+  `recursica_variables_scoped.css`, then the adapter's `style.css`, then
+  `panel.css`, imported in that order by `boot.tsx`.
+- **Providers.** `App.tsx` wraps each page in `MantineProvider` and then
+  `RecursicaThemeProvider`, with the manifest and the colour scheme (light
+  or dark, following `prefers-color-scheme` live, from `useColorScheme()`;
+  Mantine's scheme is forced to match). The provider sets
+  `data-recursica-theme` on `<html>` and wraps the page in layer 0. Where
+  only the theme is set - Mantine's tooltips and menus, portaled into the
+  body - the theme's stylesheet applies layer 0 by default.
+- **PostCSS check.** `postcss.config.cjs` runs
+  `@recursica/recursica-postcss-vars` (recommended in `SETUP.md`) over all
+  the CSS the build loads: any Recursica variable missing from the Forge
+  export warns in development and fails `npm run build`. `eslint.config.mjs` runs
+  `@recursica/eslint-plugin`'s recommended config (also recommended in
+  `SETUP.md`) on `src/panel/**/*.tsx`: any use of `overStyled` fails
+  `npm run lint`, and so the build.
+- **Portals.** The toast renders in `.art-portal`, a container pinned to
+  the viewport's top-left corner. Modals use a second container of the same
+  kind that declares `data-recursica-layer="1"`, so every modal sits on
+  layer 1, and that is where Mantine's modal expects its container. It is a
+  plain element carrying the attribute rather than the adapter's `Layer`
+  component, because `Layer` paints its own padded surface and a modal
+  portals out of any `Layer` wrapped around it.
+- **Fonts.** `fonts.ts` registers the theme's two typefaces (Dongle, Nunito
+  Sans, bundled from Fontsource and emitted as files) with the FontFace API,
+  under exactly the family names the theme uses.
 
-**Global side effects.** The panel writes to the host page only in three
-ways: the page push (inline `width` and `transition` on `<html>`), the
-`data-snippy*` dataset flags that remember the page's prior inline styles,
-and the registered fonts. Nothing else touches `<html>` or `<body>`, apart
-from the temporary `inert` attributes on `<body>` while a modal is open and
-the capture overlays.
-
-Because every stylesheet is inlined, `content.js` is large (about 2 MB, most
-of it the theme's CSS variables). It is read from the local extension package
-on each click, never downloaded.
+**The page.** Snippy writes to the reviewed page only while a capture is
+under way (the overlays) and, once, to remove an in-page panel left by an
+earlier version. It never changes the page's layout.
 
 ## Adapter workarounds
 
 Policy: when the adapter or theme misbehaves, that is an adapter bug, and the
 UI shows the adapter's real behaviour. A workaround stays only if the panel
-is **(A)** forced to it by running in a shadow root on someone else's page,
-or **(B)** would otherwise be unusable, inaccessible, or break a MUST rule in
+is **(A)** forced to it by drawing on someone else's page or by living in
+Chrome's side panel, or **(B)** would otherwise be unusable, inaccessible, or break a MUST rule in
 the Recursica skills. Everything purely cosmetic of our own **(C)** uses kit
 props and tokens or goes. Each kept item is reported to the adapter. Keep
 this list current: every workaround in the code appears here, with the gap it
 stands in for.
 
-### (A) Shadow root, or someone else's page
+### (A) Someone else's page, or the side panel
 
-- `vite.config.mts` `shadowScope` - `:root` rewritten to `.art-root`: theme
-  and Mantine variables never match inside a shadow root. Ask: ship the theme
-  scoped to a selector the consumer chooses.
-- `vite.config.mts` `shadowScope` - bare `rem` in the adapter and theme CSS
-  converted to px: `rem` follows the host page's root font. Ask: no bare
-  `rem`, or scale it like Mantine does.
-- `App.tsx` `scale: pageRemScale()` - Mantine's scale set from the host's
-  root font, for the same reason.
-- `App.tsx` `cssVariablesSelector` and `getRootElement`; `mount.tsx` and
-  `useColorScheme.ts` `data-recursica-theme` on the panel root -
-  `RecursicaThemeProvider` writes to the host's `<html>`. Ask: a provider
-  that targets a given element.
-- `App.tsx` `Portal.extend` target, `panel.css` `.art-portal` - portals must
-  stay inside the shadow root, and Mantine's modal assumes a viewport-pinned
-  container. Ask: a documented portal target on every overlay component.
-- `mount.tsx` modal portal with `data-recursica-layer="1"` - every modal sits
+- `boot.tsx` modal portal with `data-recursica-layer="1"` - every modal sits
   on layer 1; the adapter's `Layer` paints a padded surface, so a plain
   element carries the attribute. Ask: Modal should set its own layer, or
   `Layer` should have a surface-less mode.
 - `AnnotationEditor.tsx` `comboboxProps.portalProps` - the pen list renders
-  with the modal (layer 1), not in the inert layer-0 portal. Follows from the
-  two above.
-- `ReviewPanel.tsx` `withinPortal={false}`, `returnFocus={false}` on Panel and
-  modals, and `returnFocus()` - Mantine records `document.activeElement`,
-  which is the shadow host. Ask: focus return that works in a shadow root.
-- `useManagedMenu.ts` - menu focus into the first item and back to the
-  trigger, done by hand for the same reason; Tab closes the menu.
-- `fonts.ts` - the theme's typefaces added to `document.fonts` from bytes:
-  `@font-face` is ignored in a shadow root and a page's CSP can block font
-  requests. Ask: document this for embedded use.
-- `mount.tsx` host element inline styles (`all: initial`, fixed, top
-  z-index) - isolates the panel from the host page's CSS.
-- `panel.css` `.art-root` font-family - the shadow tree inherits
-  `all: initial`, so the base font comes from the brand token.
-- `vite.config.mts` `process.env.NODE_ENV` define - the adapter reads
-  `process` at runtime; a content script has none. Ask: no runtime `process`
-  access.
+  with the modal (layer 1), not in the body underneath it. Follows from the
+  one above.
+- `annotate.tsx` `initLayer0: false` - the published adapter 1.5.0's
+  `RecursicaThemeProvider` wraps the page in a painted, padded layer-0
+  `Layer`, while its docs and types say it marks `<body>` instead. The
+  editor's tab has nothing in that layer (the editor is a modal), so it
+  showed as an empty rounded strip across the top. Report: the bundled
+  provider doesn't match `@recursica/adapter-common` 1.5.0.
+- `fonts.ts` - the theme names "Nunito Sans", while the variable Fontsource
+  package's own stylesheet names it "Nunito Sans Variable".
 - `lib/capture.ts`, `lib/element.ts`, `lib/captureFrame.ts` overlay inline
-  styles and colours - they live in the host page's light DOM, where no token
-  reaches (an approved hand-built surface).
+  styles and colours - they live in the reviewed page's light DOM, where no
+  token reaches (an approved hand-built surface).
 
 ### (B) Adapter defect or gap that would break a MUST rule, accessibility or usability
 
-- `ReviewPanel.tsx` Panel `withOverlay`, `trapFocus`, `lockScroll`,
-  `closeOnEscape` and `closeOnClickOutside` all false - the adapter's Panel
-  keeps Mantine Drawer's modal defaults; the panel rules say a panel is never
-  modal (MUST).
-- `lib/page.ts` `markPanelNonModal` - Panel always renders `role="dialog"
-aria-modal="true"`, which hides the live page from screen readers.
-- `lib/page.ts` `makeBehindModalInert`, and `AnnotationEditor.tsx` making the
+- `ReviewPanel.tsx` `closeSidePanel` ignoring a close while a modal is open
+  or a capture is under way - the kit's Panel always has a Close button and
+  always closes on Escape (adapter 1.3.3 and 1.4.0), and here closing it
+  closes Chrome's side panel. But it hears Escape anywhere in the window, so
+  the Escape that cancels a confirmation, the download dialog or a capture
+  would close Snippy too. Escape anywhere else - in a comment's text box,
+  for instance - closes the side panel, as the adapter intends.
+- `dom.ts` `markPanelNonModal` - Panel always renders `role="dialog"
+aria-modal="true"`; this panel is the whole side panel, a region.
+- `dom.ts` `makeBehindModalInert`, and `AnnotationEditor.tsx` making the
   editor inert under its questions - "everything behind the modal must be
-  inert" (MUST); inside a shadow root Mantine's modal doesn't do it.
-- `ReviewPanel.tsx` Escape handler judged by `event.target`, and
-  `AnnotationEditor.tsx` `closeOnEscape` toggled - every open Mantine modal
+  inert" (MUST); Mantine's modal leaves the rest of the page reachable to a
+  screen reader's reading cursor.
+- `AnnotationEditor.tsx` `closeOnEscape` toggled - every open Mantine modal
   closes on any Escape (a window listener), so Escape in the pen list or on a
   stacked question would throw the drawing away.
+- `returnFocus={false}` on the modals, with
+  `returnFocus()`; `AddMenu.tsx` `returnFocus={false}` with
+  `useManagedMenu.ts` - Mantine returns focus to the element that opened a
+  modal or menu, even when it is gone (a deleted comment's button) or when
+  a menu item deliberately moved focus (into a new comment's text box,
+  which can happen after the menu closes, once the page has answered). The
+  panel returns focus itself, to the opener or what replaced it; Tab closes
+  the menu.
 - `App.tsx` `Tooltip.extend` focus events - tooltips must show on keyboard
   focus (MUST); the adapter keeps Mantine's hover-only default.
 - `ReviewPanel.tsx` toast live-region wrapper and `role="group"` on Toast -
@@ -305,12 +359,6 @@ aria-modal="true"`, which hides the live page from screen readers.
 - `ReviewPanel.tsx` header slot (`.art-header-slot`) for Add - Panel has no
   header actions slot, and its compound parts carry none of its styling; a
   button inside the title would rename the panel "Add Snippy".
-- `ReviewPanel.tsx` `overStyled` and `size` on Panel, `ResizeHandle.tsx`,
-  `panel.css` `.art-resizer` - Panel has no width or resize option; the owner
-  requires a resizable panel of 400 to 720 px, default 440. This is the one
-  approved use of `overStyled`.
-- `vite.config.mts` theme CSS alias - `recursica_variables_scoped.css` is not
-  in the package's `exports`; without the alias the build can't import it.
 
 ### (C) Our own elements that no component covers
 
@@ -327,40 +375,15 @@ Tokens only, owner-requested. All in `panel.css`:
 - `.art-sr-only` - there is no visually-hidden utility.
 - `.art-list` - a reset for the list semantics a card set needs.
 
-### Token remaps (owner-approved)
+### Theme values
 
-`panel.css` has one block on `.art-root` that re-points a few ui-kit token
-values for the panel only. Their proper home is the Forge theme; remove the
-block once Forge carries them. Add to it only with the owner's approval.
-
-- **Panel body padding.** Content padding is `general_lg` (16 px) on all four
-  sides: `--recursica_ui-kit_components_panel_properties_content-horizontal-padding`
-  (Forge: `general_xl`, 24 px) is re-pointed to `general_lg`, and
-  `...content-vertical-padding` is set explicitly so the four sides read alike.
-- **Card padding.** `--recursica_ui-kit_components_card_properties_padding`
-  (Forge: 24 px) is re-pointed to `--recursica_brand_dimensions_general_default`
-  (8 px).
-- **Card radius.** The layer-0 card border radius
-  (`--recursica_ui-kit_modes_light_layer_0_components_card_properties_borders_border-radius`
-  and its `dark` twin, 24 px) is set to 12 px, which no theme radius token
-  equals.
-- **Text box rows.** `--recursica_ui-kit_components_textarea_properties_rows`
-  (Forge: 4) is set to 1, so every text box starts at one row and grows and
-  shrinks with its text (with the kit's `autosize`). Gap: "TextArea should
-  allow rows/min-height to be set by the consumer."
-
-No element is styled by this block; only token values change.
+`panel.css` re-points no theme tokens and trims no headings: the panel shows
+the Forge export's own values (panel body and card padding, card radius,
+text box rows, heading line boxes). Changes to those go into the Forge
+theme, not into Snippy.
 
 ### Other owner-approved exceptions
 
-- **Heading trim.** `panel.css` `text-box: trim-both cap alphabetic` on the
-  panel title and the card number headings, inside
-  `@supports (text-box-trim: trim-both)`. It works around the theme's heading
-  line-box bug: the header type (Dongle at 56 px, 39.2 px line height) puts
-  the glyphs off the centre of their line box. Trimmed, the title's cap
-  height centres on Add and Close within 0.5 px (it was 4.6 px high) and a
-  card number on its buttons within 1 px (it was 4.8 px). Firefox doesn't
-  support it yet and shows the theme's own line box.
 - **Pen colour dropdown** has no visible label, only its accessible name "Pen
   color" (`aria-label`, which the kit's field accepts), so the editor's
   toolbar sits on one line. The label rules say no label is visually hidden.
@@ -401,11 +424,9 @@ No element is styled by this block; only token values change.
   confirmation text at the full dialog width; no Add screenshot button on
   another page's comment (a new screenshot would capture the open page, not
   that comment's page); the failed-load message in the panel body; page
-  links in the same tab, with page titles at link size; no heading trim in
-  Firefox until it supports it; Snippy's Alt+Shift shortcuts taking priority
-  over a page's own access keys in Firefox on Windows and Linux; the
-  manifest `author` string (Chrome ignores it, Firefox reads it); and the
-  suggested browser shortcut Alt+Shift+K.
+  links opened in the reviewed tab, with page titles at link size; the
+  manifest `author` string (Chrome ignores it); and the suggested browser
+  shortcut Alt+Shift+K.
 
 ### Adapter gaps with no workaround
 
@@ -421,9 +442,9 @@ The UI shows the kit's real behaviour:
 ## Data model
 
 Everything lives under one `chrome.storage.local` key (`snippySession`), not
-one entry per comment or per page. A content script's own page-scoped
-`localStorage` is isolated per origin, which would defeat the entire "any
-site, one session" pitch. The types live in `src/content/lib/types.ts`.
+one entry per comment or per page: one store shared by every site the
+reviewer visits, which is the "any site, one session" pitch. The types live
+in `src/lib/types.ts`.
 
 ```
 Session {
@@ -436,7 +457,7 @@ Session {
 }
 
 ReviewPage {
-  title: string                // document.title, captured once per page
+  title: string                // the tab's title, captured once per page
   recursica?: RecursicaDetection   // see Recursica detection
   comments: ReviewComment[]
 }
@@ -460,12 +481,11 @@ route. `SessionEnvironment`, `CommentContext`, `Annotation`,
 
 ### Page keys
 
-The page key is the address the panel is on right now
-(`currentPageKey()` in `lib/page.ts`). Single-page apps change it without a
-reload, and a content script can't see the page's own history calls, so
-`usePageKey()` re-reads it every 500 ms, and at once on `hashchange` and
-`popstate`; comments added after an in-app navigation are filed under the new
-address.
+The page key comes from the active tab's address (`pageKeyFromUrl()` in
+`lib/pageKey.ts`), and only for web and file pages. Chrome reports a
+single-page app's in-app navigations (history calls and hash changes) as an
+address change on the tab, so comments added after one are filed under the
+new address.
 
 A fragment counts only when it is a route (`#/...` or `#!...`). Each hash
 route is its own page: its own report section, its own group in the all-pages
@@ -485,8 +505,6 @@ because they are identity and preference facts, not session data:
 
 - `snippyUser`, `snippyEmail` - reviewer identity. The download modal edits
   them (and the session's details) each time a report is downloaded.
-- `snippyPanelWidth` - the panel's width: 400 to 720 px, default 440. A
-  stored width below the minimum is raised to it on load.
 - `snippyPenColor` - the annotation pen's last colour.
 - `snippyPageOnly`, `snippyShowImages` - the two view checkboxes, both on
   unless stored as `false`.
@@ -534,7 +552,8 @@ like the browser's element inspector: a CSS selector path (crossing an open
 shadow root is written `>>>`), the element's HTML with its descendants, a
 compact set of 48 computed style properties, and flags for truncation and for
 a partly visible element. Its `screenshot` is the element cropped from the
-page. Older element comments keep their viewport in `element.viewport`;
+page. Deleting that screenshot (in the annotation editor) deletes the
+`element` too, leaving a plain comment. Older element comments keep their viewport in `element.viewport`;
 newer ones keep it in `context`.
 
 Everything in it is copied from someone else's page, so it is untrusted and
@@ -583,9 +602,8 @@ while nothing has been found. It never blocks the panel and never throws:
   `data-recursica-layer` (0 to 3) on the page.
 - **Forge and transform versions** from the header comment of the page's
   theme stylesheet ("Source JSON version", "Transform version"). Only
-  `<style>` elements and same-origin stylesheets are read (the extension has
-  no host permissions, so cross-origin sheets are skipped without a
-  request), and only their first 4 KB, with a 1.5 s timeout per sheet and
+  `<style>` elements and same-origin stylesheets are read (cross-origin
+  sheets are skipped without a request), and only their first 4 KB, with a 1.5 s timeout per sheet and
   2.5 s overall. A minified sheet without comments yields nothing. No other
   page content is read or stored.
 - **Adapter version** only if the page exposes one, as a
@@ -611,7 +629,7 @@ back. Sessions saved when numbers were never reused can have gaps, so
 
 - **Saving.** Structural changes (a new, deleted or duplicated comment, a
   capture, a start over) save at once; typing saves after a 400 ms pause, and
-  anything still pending is written when the panel closes. Saving is silent:
+  anything still pending is written when the panel is hidden or closed. Saving is silent:
   the panel shows no save status (an approved exception to the autosave-status
   rule). Every write's promise is tracked, and a failed write raises a toast
   with the browser's reason.
@@ -620,11 +638,11 @@ back. Sessions saved when numbers were never reused can have gaps, so
   the annotation editor, deleting the screenshot, clearing annotations, and
   closing with an unsaved drawing. The editor's confirmations stack on the
   editor, so Cancel returns to the drawing untouched.
-- **Failed load.** If storage can't be read at all, `mountPanel()` opens the
+- **Failed load.** If storage can't be read at all, `boot.tsx` opens the
   panel anyway with `FAILED_LOAD_STATE`: nothing loaded, Add disabled, and a
   message in the panel body. With Add disabled no session can start, so the
   session that could not be read is never written over. There is no retry;
-  the next toolbar click tries again.
+  closing and reopening the side panel tries again.
 
 ### Migrations
 
@@ -634,7 +652,7 @@ There is no database migration step and no version field forcing a clean
 slate. `session.pages[key]` has already changed shape once (a bare comments
 array became `{ title, comments }`), and a session created before that change
 crashed the panel on load the moment old-shape data reached new code.
-`migrateSession()` in `src/content/lib/storage.ts` normalizes a loaded
+`migrateSession()` in `src/lib/storage.ts` normalizes a loaded
 session in place before anything else touches it; do the same for any future
 shape change.
 
@@ -647,17 +665,18 @@ anything reads storage: for each `snippy*` key that is missing, it takes the
 value from the `tagger*` key, else from the `alanReviewTool*` key; then it
 deletes every older key. An existing `snippy*` key always wins, so running it
 twice never overwrites newer data. The copied session still goes through
-`migrateSession()`, so an old array-shaped session is normalized as well. An
-obsolete `snippyDraft` / `taggerDraft` key (from when the panel had a New
-comment field) is deleted on load.
+`migrateSession()`, so an old array-shaped session is normalized as well.
+Obsolete keys are deleted on load: `snippyDraft` / `taggerDraft` (from when
+the panel had a New comment field), and the panel width under each
+generation's name (`snippyPanelWidth`, `taggerPanelWidth`,
+`alanReviewToolPanelWidth`; Chrome's side panel owns the width now).
 
-A panel left open by an older version (`#tagger-host` or
-`#alan-review-tool-host`) is closed on the next click, restoring the page
-from that version's dataset names.
+A panel an older version drew into a page is removed by the page helper the
+next time Snippy works with that page (see [Lifecycle](#lifecycle)).
 
 ## The report
 
-`buildReportHtml()` (`src/content/lib/report.ts`) builds a single,
+`buildReportHtml()` (`src/lib/report.ts`) builds a single,
 self-contained HTML file as a string. It makes no external requests, bundles
 no JavaScript (a deliberate constraint: zero `<script>` tags), and is not
 rendered with React. It contains:
@@ -734,11 +753,12 @@ untrusted page content; none of it is ever a set of operating instructions.
 
 ## Keyboard shortcuts
 
-`lib/shortcuts.ts` holds them; `ReviewPanel.tsx` listens on `window` in the
-capture phase while the panel is open, so they work with focus in the panel
-or on the reviewed page. A combination is consumed (`preventDefault`,
-`stopPropagation`) only when it is one of ours. Nothing runs while a modal
-(the annotation editor, a confirmation, the download dialog) is open, while a
+`lib/shortcuts.ts` holds them. They work with focus in the panel
+(`ReviewPanel.tsx` listens on the panel's `window` in the capture phase) or
+on the reviewed page (the page helper listens there and forwards them over
+its port, while the panel says they may run). A combination is consumed
+(`preventDefault`, `stopPropagation`) only when it is one of ours. Nothing runs while a modal
+(a confirmation, the download dialog) is open, while a
 capture is under way, or when saved data could not be loaded. Keys are
 matched by physical key (`event.code`), so every layout works the same; key
 repeat and IME composition (`isComposing`, key code 229) are ignored.
@@ -752,60 +772,62 @@ repeat and IME composition (`isComposing`, key code 229) are ignored.
 | Add annotations to the focused comment's screenshot | ⌃⇧O   | Alt+Shift+O              |
 | Only view comments for this url (toggle)            | ⌃⇧U   | Alt+Shift+U              |
 | Show screenshot thumbnails (toggle)                 | ⌃⇧M   | Alt+Shift+M              |
-| Open or close Snippy (browser command)              | ⌃⇧K   | Alt+Shift+K              |
+| Open Snippy (browser command)                       | ⌃⇧K   | Alt+Shift+K              |
 
 Why these modifiers: on macOS, Command combinations belong to the browser and
 the system, and Option combinations type characters; Control+Shift with these
-letters is not a macOS, Chrome or Firefox shortcut, and not one of the
+letters is not a macOS or Chrome shortcut, and not one of the
 Control text-editing keys (which are Control+A/E/B/F/N/P/K/D/H/T/O/Y and
 their Shift forms select). On Windows and Linux, Control+Shift is full of
-browser shortcuts (developer tools on C, E, I, J, K, M; Firefox's screenshot
-on S; paste as plain text on V; redo on Z), while Alt+Shift with these
-letters is free in Chrome and Firefox. Control must be up, so AltGr (which
+browser shortcuts (developer tools on C, E, I, J, K, M; paste as plain text
+on V; redo on Z), while Alt+Shift with these letters is free in Chrome. Control must be up, so AltGr (which
 arrives as Control+Alt) never matches.
 
-Known overlaps: a page's own `accesskey` on one of these letters (Firefox on
-Windows and Linux uses Alt+Shift for access keys) is taken while the panel is
-open, and a web app that binds the same combination loses it while the panel
-is open.
+Known overlap: a web app that binds the same combination loses it while the
+panel is open.
 
-The browser command (`commands._execute_action` in both manifests) opens and
-closes Snippy like the toolbar button. Chrome applies the suggested key only
-when the extension is installed and the key is free; the reviewer can change
-it at `chrome://extensions/shortcuts` (Firefox: Manage Extension Shortcuts in
-the add-ons page).
+The browser command (`commands._execute_action` in the manifest) opens
+Snippy like the toolbar button. Chrome applies the suggested key only when
+the extension is installed and the key is free; the reviewer can change it
+at `chrome://extensions/shortcuts`.
 
 ## Build
 
 `npm run build` runs lint and the type check (`npm run lint`), then
-`build.js`:
+`build.js`, which runs Vite (`vite.config.mts`) twice and assembles
+`dist/chrome`:
 
-1. **Vite** (`vite.config.mts`) runs in library mode, producing one classic
-   IIFE script, `content.js` (content scripts injected with `executeScript`
-   can't be ES modules). `src/report.css` and `src/ai-report-instructions.txt`
-   are imported as raw strings (`?raw`), the panel's stylesheets as inline
-   strings (`?inline`), and the font files inlined as data. The version
-   written into the report comes from `package.json` via a Vite `define`. A
-   missing source file fails the build.
-2. **Copy.** `content.js`, `background.js` and the extension icons
-   (`src/icons/icon-{16,32,48,128}.png`) are copied into `dist/chrome` and
-   `dist/firefox`, with each browser's own manifest as `manifest.json`. Both
-   manifests list the icons (`icons` and `action.default_icon`); if the icon
-   files are missing, the build prints a warning and removes those entries
-   from the built manifests, since a browser refuses a manifest that points
-   at missing files. `npm run icons -- <source.png>` (`scripts/make-icons.mjs`)
-   generates the four sizes from one PNG, with no dependencies beyond Node's
-   built-in `zlib`.
-3. **Version.** `package.json`'s `version` is the only source of truth
-   (Changesets bumps only it). The build writes it into each built manifest,
-   right after the name. Browsers accept only one to four dot-separated
+1. **The extension pages** (mode `panel`): `src/panel/sidepanel.html` and
+   `src/panel/annotate.html` and everything they import, sharing one
+   bundle, as ES modules, with the stylesheets and font files
+   emitted under `assets/`. `src/report.css` and
+   `src/ai-report-instructions.txt` are imported as raw strings (`?raw`). The
+   version written into the report comes from `package.json` via a Vite
+   `define`, as do the adapter's version (its `package.json`) and the Forge
+   versions (the header comment of the Forge export's
+   `recursica_variables_scoped.css`). PostCSS runs the Recursica variable
+   check (see [Styling](#styling)).
+2. **The page helper** (mode `page`): `src/page/main.ts` in library mode, as
+   one classic IIFE script, `page.js` (scripts injected with
+   `executeScript` can't be ES modules).
+3. **Copy.** `background.js`, the extension icons
+   (`src/icons/icon-{16,32,48,128}.png`) and `src/manifest.json` (as
+   `manifest.json`) join them in `dist/chrome`. The manifest lists the icons
+   (`icons` and `action.default_icon`); if the icon files are missing, the
+   build prints a warning and removes those entries, since Chrome refuses a
+   manifest that points at missing files. `npm run icons -- <source.png>`
+   (`scripts/make-icons.mjs`) generates the four sizes from one PNG, with no
+   dependencies beyond Node's built-in `zlib`.
+4. **Version.** `package.json`'s `version` is the only source of truth
+   (Changesets bumps only it). The build writes it into the built manifest,
+   right after the name. Chrome accepts only one to four dot-separated
    integers, so a prerelease or build suffix (`1.2.0-beta.1`) fails the build
    with a clear message rather than being mapped. The build then checks that
-   both built manifests and the built `content.js` carry exactly that
+   the built manifest and the side panel's script carry exactly that
    version, and fails if not.
 
-Type checking is `npm run typecheck`: `tsconfig.json` covers the panel,
-`tsconfig.node.json` covers `vite.config.mts`.
+Type checking is `npm run typecheck`: `tsconfig.json` covers `src/panel`,
+`src/page` and `src/lib`; `tsconfig.node.json` covers `vite.config.mts`.
 
 ## Release and CI
 
@@ -823,9 +845,9 @@ Type checking is `npm run typecheck`: `tsconfig.json` covers the panel,
   updates a "Version Packages" PR. When that PR is merged, the action tags
   and creates the GitHub Release; the workflow then runs
   `npm run package-extension` and uploads the zips to that release.
-- **Release zips** (`scripts/package-extension.mjs`): zips each built
-  `dist/<browser>` folder into `release-zips/` as
-  `snippy-<browser>-v<version>.zip`, with `manifest.json` at the zip's top
+- **Release zips** (`scripts/package-extension.mjs`): zips the built
+  `dist/chrome` folder into `release-zips/` as
+  `snippy-chrome-v<version>.zip`, with `manifest.json` at the zip's top
   level. The version comes from `package.json`. Run `npm run build` first.
 - **Pre-commit** (`.husky/`, `scripts/lint-staged.config.cjs`): lint-staged
   formats staged files with Prettier, lints staged JS and TS with ESLint, and
@@ -833,13 +855,27 @@ Type checking is `npm run typecheck`: `tsconfig.json` covers the panel,
 
 ## Verification methodology
 
-There is no automated test suite checked into this repo. A real toolbar click
-can't be scripted, so verification relies on Playwright, run ad hoc from
-outside the repo: stub `chrome.storage.local` and `chrome.runtime` in an init
-script, route a fake site, evaluate `dist/chrome/content.js` in the page (one
-evaluation is one toolbar click), then drive the panel with real mouse and
-keyboard input rather than synthetic `element.click()` calls, which don't
-reliably trigger the same focus and event paths as genuine input.
-Playwright's role and label locators pierce the open shadow root. Cover light
-and dark, a host page with a non-16px root font, the minimum panel width, and
-an old-shape stored session.
+There is no automated test suite checked into this repo. Chrome opens a side
+panel only from a user gesture (the toolbar click), which can't be scripted,
+so verification relies on Playwright, run ad hoc from outside the repo:
+
+- Launch Chromium with the built `dist/chrome` loaded
+  (`--load-extension`), and serve a fake site on two origins (for example
+  `localhost` and `127.0.0.1`).
+- Open `chrome-extension://<id>/sidepanel.html` in a narrow popup window
+  (about 420 px), with an init script that stubs only
+  `chrome.windows.getCurrent()` to return the reviewed tab's window - the
+  one fact a real side panel knows that a popup doesn't. Everything else is
+  real: storage, the page helper's injection, `captureVisibleTab`.
+- Drive both the panel and the reviewed page with real mouse and keyboard
+  input rather than synthetic `element.click()` calls, which don't reliably
+  trigger the same focus and event paths as genuine input.
+
+Cover light and dark, captures (region, element by mouse and by keys from the
+panel, Escape), shortcuts with focus on the page, navigating the tab across
+origins, a chrome:// page, the report download, and an old-shape stored
+session. For the annotation editor, drive its tab (it opens as a new page
+in the browser context): saving through the panel, the one-tab-per-comment
+switch, and saving with the panel closed. A test can't read the editor
+tab's address through `chrome.tabs` either (no `tabs` permission), so it
+uses Playwright's own page for the tab.

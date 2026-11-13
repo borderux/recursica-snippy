@@ -1,23 +1,25 @@
 # Snippy
 
-A Manifest V3 browser extension (Chrome and Firefox) for capturing UI/UX
-feedback on any website. Click the toolbar icon on any tab and a slide-out
-panel appears — no changes needed on the target site, no backend, and no
-JavaScript in what you export.
+A Manifest V3 Chrome extension for capturing UI/UX feedback on any website.
+Click the toolbar icon and Snippy opens in Chrome's side panel, where it
+stays as you move between pages, sites and tabs — no changes needed on the
+target site, no backend, and no JavaScript in what you export.
 
 ## About
 
 Snippy is made by [Recursica](https://recursica.com). The source is at
 [github.com/borderux/recursica-snippy](https://github.com/borderux/recursica-snippy); report
 problems in its [issues](https://github.com/borderux/recursica-snippy/issues). The
-version comes from `package.json` alone: the build writes it into both
-browser manifests and the panel, and fails if they would differ.
+version comes from `package.json` alone: the build writes it into the
+manifest and the panel, and fails if they would differ.
 
 ## Features
 
-- **Works on any site, in either browser** — injected via `activeTab` +
-  `chrome.scripting.executeScript` on toolbar click, not tied to any one
-  domain or embedded snippet.
+- **Works on any site, and stays open** — the panel is Chrome's side
+  panel, so it stays open across page loads, sites and tabs in the window,
+  showing the active tab's comments. Not tied to any one domain or
+  embedded snippet. Browser pages (chrome://, the Chrome Web Store) can't
+  be reviewed; the panel says so there.
 - **Comments and screenshots**, grouped into a single review **session**
   that spans every page visited, not scoped to one tab or one origin.
 - **One Add menu** — the plus button in the panel header offers Comment,
@@ -31,7 +33,8 @@ browser manifests and the panel, and fails if they would differ.
   default) can hide the screenshots in the panel (never in the report).
   Both are remembered.
 - **Screenshot capture with editable annotations** — drag-select any
-  region of the page, then use Add annotations to mark it up with a pen,
+  region of the page, then use Add annotations to mark it up (in a tab of
+  its own beside the page, with room to work) with a pen,
   arrows (pointing down and to the left) and numbered dots, in one of six
   colors (red by default; the last choice is remembered). Every mark has a
   thin contrasting outline so it shows on light and dark screenshots. Each
@@ -44,7 +47,8 @@ browser manifests and the panel, and fails if they would differ.
   viewport size and a screenshot of just that element, with typed form
   values and script contents removed.
 - **Built on the Recursica design system** (React, TypeScript and the
-  Recursica Mantine adapter, with the default Recursica Forge theme), in
+  Recursica Mantine adapter, with Snippy's own Recursica Forge theme
+  export), in
   light or dark mode following your operating system.
 - **Environment in the report** — the reviewer's browser, OS, language,
   time zone and screen, and for each comment the viewport, pixel ratio,
@@ -54,15 +58,12 @@ browser manifests and the panel, and fails if they would differ.
 - **Keyboard shortcuts** while the panel is open, shown after each label:
   add a comment, screenshot or element, duplicate or annotate the focused
   comment, and the two view options (Control+Shift on a Mac, Alt+Shift
-  elsewhere; see ARCHITECTURE.md). A browser shortcut, Alt+Shift+K
-  (⌃⇧K on a Mac), opens and closes Snippy; Chrome applies it only on
-  install and if it is free, and you can change it at
-  `chrome://extensions/shortcuts` (Firefox: the add-ons page, Manage
-  Extension Shortcuts).
-- **Resizable panel** (400 to 720 px, 440 by default) that remembers its
-  width (drag the left edge, or
-  focus it and use the arrow keys). Download report (its tooltip says how
-  many comments across how many pages) asks for the
+  elsewhere; see ARCHITECTURE.md), with focus in the panel or on the
+  page. A browser shortcut, Alt+Shift+K (⌃⇧K on a Mac), opens Snippy;
+  Chrome applies it only on install and if it is free, and you can change
+  it at `chrome://extensions/shortcuts`.
+- **Download report** (its tooltip says how many comments across how
+  many pages) asks for the
   reviewer's name, email and session details each time, prefilled with
   the last values used.
 - **Exports a single, self-contained HTML report** — header, table of
@@ -136,13 +137,11 @@ no separate small-screen or touch layout.
 
     npm run build
 
-Runs lint and the type check, bundles the panel with Vite into a single
-`content.js`, and writes browser-specific bundles to `dist/chrome` and
-`dist/firefox`. Two manifests are needed because Chrome's MV3 requires a
-`service_worker` background and Firefox's MV3 still wants
-`background.scripts`, and Firefox also needs its own add-on id
-(`browser_specific_settings.gecko.id`). Everything else (`background.js`,
-`content.js`) is shared, unmodified, between both.
+Runs lint and the type check, then builds with Vite into `dist/chrome`:
+the side panel and the annotation editor (`sidepanel.html`,
+`annotate.html` and their `assets/`), the page helper
+injected into reviewed pages (`page.js`), `background.js` and the
+manifest.
 
 ## Extension icon
 
@@ -162,9 +161,10 @@ icon.
     npm run lint        # ESLint, then the TypeScript type check
     npm run typecheck   # the type check alone
     npm run format
-    npm run package-extension   # zip dist/chrome and dist/firefox into release-zips/
+    npm run package-extension   # zip dist/chrome into release-zips/
 
-The panel lives in `src/content/` (React + TypeScript). `npm install` also
+The side panel lives in `src/panel/` (React + TypeScript), the page helper
+in `src/page/`, and the modules they share in `src/lib/`. `npm install` also
 wires up a Husky pre-commit hook (via `prepare`) that runs Prettier, ESLint
 and the type check on staged files. Releases are tracked with
 [Changesets](https://github.com/changesets/changesets) — run `npx changeset`
@@ -181,19 +181,6 @@ If you're an AI agent making changes here, read [AGENTS.md](AGENTS.md) and
 1. `chrome://extensions`
 2. Enable "Developer mode" (top right)
 3. "Load unpacked" → select `dist/chrome`
-4. Pin the extension, visit any site, click its toolbar icon — the panel
-   should slide in from the right. Click again to close.
-
-## Load in Firefox
-
-**Upgrading from the Alan Review Tool:** Snippy has a new Firefox add-on id,
-replacing the Alan Review Tool's, so Firefox installs Snippy as a new add-on and any comments stored by the old
-version are not carried over. Download a report from the old version first
-if you need them. Chrome is not affected: its stored data moves to Snippy
-automatically.
-
-1. `about:debugging#/runtime/this-firefox`
-2. "Load Temporary Add-on…" → select `dist/firefox/manifest.json`
-3. Visit any site, click the toolbar icon — same panel.
-   (Temporary add-ons are removed on restart — expected for a temporary
-   add-on; reload it after each Firefox restart during development.)
+4. Pin the extension, visit any site, click its toolbar icon — Snippy
+   opens in the side panel. Close it with the side panel's own close
+   button.
