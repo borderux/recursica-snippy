@@ -1,42 +1,13 @@
-chrome.action.onClicked.addListener(async (tab) => {
-  if (!tab.id) return;
-  try {
-    await chrome.scripting.executeScript({
-      target: { tabId: tab.id },
-      files: ["content.js"],
-    });
-    // A tab that once failed (e.g. a restricted page) and later succeeds
-    // (e.g. after navigating to a real site) would otherwise keep showing
-    // the red badge forever - nothing else ever clears it.
-    await chrome.action.setBadgeText({ tabId: tab.id, text: "" });
-  } catch (err) {
-    // chrome://, the Web Store, and the PDF viewer refuse injection even with
-    // activeTab — surface that instead of failing silently on click.
-    console.error("Snippy: could not inject into this tab.", err);
-    await chrome.action.setBadgeBackgroundColor({
-      tabId: tab.id,
-      color: "#d33",
-    });
-    await chrome.action.setBadgeText({ tabId: tab.id, text: "!" });
-  }
-});
-
-// Only the background/service-worker context can capture pixels - content
-// scripts can't call this themselves, hence the round trip. The same
-// activeTab grant that let the panel inject in the first place still covers
-// this, as long as the tab hasn't navigated since.
+// The service worker. Snippy's panel is Chrome's side panel
+// (sidepanel.html, from src/panel): Chrome owns it, keeps it open across
+// page loads and tabs in a window, and gives it its own close button. The
+// one thing to set up here is that the toolbar icon (and its keyboard
+// command, _execute_action) opens it.
 //
-// Caught explicitly and returned as { error } rather than left to reject:
-// a rejected promise crossing the sendMessage channel is exactly the kind of
-// failure that vanishes silently on the content-script side otherwise.
-chrome.runtime.onMessage.addListener((message, sender) => {
-  if (message?.type !== "snippy:capture" || sender.tab?.windowId == null)
-    return;
-  return chrome.tabs
-    .captureVisibleTab(sender.tab.windowId, { format: "png" })
-    .then((dataUrl) => ({ dataUrl }))
-    .catch((err) => {
-      console.error("Snippy: captureVisibleTab failed.", err);
-      return { error: String(err) };
-    });
-});
+// Called on every start of the worker rather than only on install: it is
+// cheap, and it keeps the behaviour right after an update too.
+chrome.sidePanel
+  .setPanelBehavior({ openPanelOnActionClick: true })
+  .catch((err) =>
+    console.error("Snippy: could not set up the side panel.", err),
+  );

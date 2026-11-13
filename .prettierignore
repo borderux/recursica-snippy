@@ -2,3 +2,7 @@ dist
 # Agent configuration is not part of this project and must not be
 # reformatted by `npm run format`.
 .claude/
+# Snippy's Forge export (the Recursica theme), kept exactly as Forge
+# exported it.
+recursica_*.json
+recursica_variables_scoped.css

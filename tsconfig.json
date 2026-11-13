@@ -15,5 +15,10 @@
     "resolveJsonModule": true,
     "types": ["chrome", "vite/client"]
   },
-  "include": ["src/content/**/*.ts", "src/content/**/*.tsx"]
+  "include": [
+    "src/panel/**/*.ts",
+    "src/panel/**/*.tsx",
+    "src/page/**/*.ts",
+    "src/lib/**/*.ts"
+  ]
 }

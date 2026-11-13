@@ -15,8 +15,8 @@
 # 2. Uses Changesets to detect whether there's a version bump pending
 # 3. If changesets are present, opens/updates a "Version Packages" PR
 # 4. When that PR is merged, changesets/action tags + creates the GitHub
-#    Release (from privatePackages.tag), then this workflow zips both
-#    dist/chrome and dist/firefox and uploads them as assets on that release
+#    Release (from privatePackages.tag), then this workflow zips
+#    dist/chrome and uploads it as an asset on that release
 
 name: Release
 

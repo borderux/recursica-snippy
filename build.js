@@ -4,11 +4,14 @@ const path = require("path");
 const ROOT = __dirname;
 const SRC = path.join(ROOT, "src");
 const DIST = path.join(ROOT, "dist");
-// Vite writes the bundled panel here first; it is then copied, unchanged,
-// into each browser's folder.
-const CONTENT_OUT = path.join(DIST, ".content", "content.js");
+// The extension, ready for "Load unpacked" and for packaging.
+const OUT_DIR = path.join(DIST, "chrome");
+// Vite writes the side panel and the page helper here first; they are
+// then copied, unchanged, into OUT_DIR.
+const PANEL_OUT = path.join(DIST, ".panel");
+const PAGE_OUT = path.join(DIST, ".page", "page.js");
 
-// Copied as-is. content.js is not in this list - it is Vite's output.
+// Copied as-is. Everything else is Vite's output.
 const SHARED_FILES = ["background.js"];
 // The extension icon, in the four sizes the manifests list. Generated from
 // one source image with `npm run icons -- <source.png>` (see README).
@@ -16,8 +19,8 @@ const ICON_SIZES = [16, 32, 48, 128];
 const ICONS_DIR = path.join(SRC, "icons");
 const iconFile = (size) => `icon-${size}.png`;
 
-// package.json's version is the only source of truth: the manifests carry
-// none in src, and each built manifest gets it here. Browsers need one to
+// package.json's version is the only source of truth: the manifest carries
+// none in src, and the built manifest gets it here. Browsers need one to
 // four dot-separated integers (0-65535) - a prerelease or build suffix
 // (1.2.0-beta.1) is refused rather than silently mapped.
 const { version } = JSON.parse(
@@ -34,28 +37,31 @@ if (
   );
 }
 
-const TARGETS = {
-  chrome: "manifest.chrome.json",
-  firefox: "manifest.firefox.json",
-};
-
 async function main() {
   fs.rmSync(DIST, { recursive: true, force: true });
 
   // Vite is ESM-only; this script stays CommonJS so it keeps working
-  // without "type": "module" in package.json.
+  // without "type": "module" in package.json. Two builds (see
+  // vite.config.mts): the side panel, then the page helper.
   const { build } = await import("vite");
-  await build({
-    configFile: path.join(ROOT, "vite.config.mts"),
-    logLevel: "warn",
-  });
-
-  if (!fs.existsSync(CONTENT_OUT)) {
-    throw new Error(`Vite did not produce ${CONTENT_OUT}`);
+  for (const mode of ["panel", "page"]) {
+    await build({
+      configFile: path.join(ROOT, "vite.config.mts"),
+      mode,
+      logLevel: "warn",
+    });
+  }
+  for (const page of ["sidepanel.html", "annotate.html"]) {
+    if (!fs.existsSync(path.join(PANEL_OUT, page))) {
+      throw new Error(`Vite did not produce ${PANEL_OUT}/${page}`);
+    }
+  }
+  if (!fs.existsSync(PAGE_OUT)) {
+    throw new Error(`Vite did not produce ${PAGE_OUT}`);
   }
 
   // Until the real icon has been generated, build without it rather than
-  // ship a manifest pointing at missing files (which a browser refuses to
+  // ship a manifest pointing at missing files (which Chrome refuses to
   // load): drop the icon entries and say so loudly.
   const missingIcons = ICON_SIZES.filter(
     (size) => !fs.existsSync(path.join(ICONS_DIR, iconFile(size))),
@@ -67,69 +73,67 @@ async function main() {
     );
   }
 
-  for (const [browser, manifestFile] of Object.entries(TARGETS)) {
-    const outDir = path.join(DIST, browser);
-    fs.mkdirSync(outDir, { recursive: true });
-    for (const file of SHARED_FILES) {
-      fs.copyFileSync(path.join(SRC, file), path.join(outDir, file));
-    }
-    fs.copyFileSync(CONTENT_OUT, path.join(outDir, "content.js"));
-    const manifest = JSON.parse(
-      fs.readFileSync(path.join(SRC, manifestFile), "utf8"),
-    );
-    if ("version" in manifest) {
-      throw new Error(
-        `${manifestFile} has its own "version"; remove it - the build writes package.json's.`,
-      );
-    }
-    // Right after the name, where browsers and people expect it.
-    const { manifest_version, name, ...rest } = manifest;
-    Object.keys(manifest).forEach((key) => delete manifest[key]);
-    Object.assign(manifest, { manifest_version, name, version, ...rest });
-    if (missingIcons.length > 0) {
-      delete manifest.icons;
-      delete manifest.action.default_icon;
-    } else {
-      fs.mkdirSync(path.join(outDir, "icons"), { recursive: true });
-      for (const size of ICON_SIZES) {
-        fs.copyFileSync(
-          path.join(ICONS_DIR, iconFile(size)),
-          path.join(outDir, "icons", iconFile(size)),
-        );
-      }
-    }
-    fs.writeFileSync(
-      path.join(outDir, "manifest.json"),
-      `${JSON.stringify(manifest, null, 2)}\n`,
+  fs.mkdirSync(OUT_DIR, { recursive: true });
+  for (const file of SHARED_FILES) {
+    fs.copyFileSync(path.join(SRC, file), path.join(OUT_DIR, file));
+  }
+  fs.cpSync(PANEL_OUT, OUT_DIR, { recursive: true });
+  fs.copyFileSync(PAGE_OUT, path.join(OUT_DIR, "page.js"));
+
+  const manifest = JSON.parse(
+    fs.readFileSync(path.join(SRC, "manifest.json"), "utf8"),
+  );
+  if ("version" in manifest) {
+    throw new Error(
+      'manifest.json has its own "version"; remove it - the build writes package.json\'s.',
     );
   }
-
-  // Guard: every built manifest, and the panel itself, must carry exactly
-  // package.json's version.
-  for (const browser of Object.keys(TARGETS)) {
-    const built = JSON.parse(
-      fs.readFileSync(path.join(DIST, browser, "manifest.json"), "utf8"),
-    );
-    if (built.version !== version) {
-      throw new Error(
-        `dist/${browser}/manifest.json says ${built.version}, package.json says ${version}`,
-      );
-    }
-    const content = fs.readFileSync(
-      path.join(DIST, browser, "content.js"),
-      "utf8",
-    );
-    // As a string literal in any quote style the minifier picked.
-    const literal = new RegExp(`["'\`]${version.replace(/\./g, "\\.")}["'\`]`);
-    if (!literal.test(content)) {
-      throw new Error(
-        `dist/${browser}/content.js does not carry version ${version}`,
+  // Right after the name, where browsers and people expect it.
+  const { manifest_version, name, ...rest } = manifest;
+  Object.keys(manifest).forEach((key) => delete manifest[key]);
+  Object.assign(manifest, { manifest_version, name, version, ...rest });
+  if (missingIcons.length > 0) {
+    delete manifest.icons;
+    delete manifest.action.default_icon;
+  } else {
+    fs.mkdirSync(path.join(OUT_DIR, "icons"), { recursive: true });
+    for (const size of ICON_SIZES) {
+      fs.copyFileSync(
+        path.join(ICONS_DIR, iconFile(size)),
+        path.join(OUT_DIR, "icons", iconFile(size)),
       );
     }
   }
+  fs.writeFileSync(
+    path.join(OUT_DIR, "manifest.json"),
+    `${JSON.stringify(manifest, null, 2)}\n`,
+  );
 
-  fs.rmSync(path.join(DIST, ".content"), { recursive: true, force: true });
-  console.log("Built extension bundles into dist/chrome and dist/firefox");
+  // Guard: the built manifest, and the panel itself (which writes the
+  // version into every report), must carry exactly package.json's version.
+  const built = JSON.parse(
+    fs.readFileSync(path.join(OUT_DIR, "manifest.json"), "utf8"),
+  );
+  if (built.version !== version) {
+    throw new Error(
+      `dist/chrome/manifest.json says ${built.version}, package.json says ${version}`,
+    );
+  }
+  const assetsDir = path.join(OUT_DIR, "assets");
+  const panelJs = fs
+    .readdirSync(assetsDir)
+    .filter((file) => file.endsWith(".js"))
+    .map((file) => fs.readFileSync(path.join(assetsDir, file), "utf8"))
+    .join("\n");
+  // As a string literal in any quote style the minifier picked.
+  const literal = new RegExp(`["'\`]${version.replace(/\./g, "\\.")}["'\`]`);
+  if (!literal.test(panelJs)) {
+    throw new Error(`The built side panel does not carry version ${version}`);
+  }
+
+  fs.rmSync(PANEL_OUT, { recursive: true, force: true });
+  fs.rmSync(path.dirname(PAGE_OUT), { recursive: true, force: true });
+  console.log("Built the extension into dist/chrome");
 }
 
 main().catch((err) => {

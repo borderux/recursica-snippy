@@ -3,60 +3,20 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig, type Plugin as VitePlugin } from "vite";
 import react from "@vitejs/plugin-react";
-import type { AcceptedPlugin, Declaration, Rule } from "postcss";
 
 const rootDir = path.dirname(fileURLToPath(import.meta.url));
 const { version } = JSON.parse(
   readFileSync(path.join(rootDir, "package.json"), "utf8"),
 ) as { version: string };
 
-// The class on the panel's root element inside the shadow root. Every
-// stylesheet the panel injects is scoped to it - see shadowScope below.
-// Must match PANEL_ROOT_CLASS in src/content/mount.tsx.
-const PANEL_ROOT_CLASS = "art-root";
-
-// Mantine and the Recursica theme both declare their base variables on
-// `:root`, which never matches anything inside a shadow root. Rewriting the
-// selector at build time points them at the panel's own root element
-// instead. The Recursica adapter's and theme's own stylesheets also use a
-// handful of bare `rem` values; a `rem` resolves against the host page's
-// <html> font size, which any site can change (the 62.5% trick is common),
-// so those are converted to px here. Mantine's own rem values are left
-// alone - they are all multiplied by --mantine-scale, which the panel sets
-// from the host page's real root font size at mount (see theme.ts).
-function shadowScope(): AcceptedPlugin {
-  return {
-    postcssPlugin: "snippy-shadow-scope",
-    Rule(rule: Rule) {
-      if (rule.selector.includes(":root")) {
-        rule.selector = rule.selector.replace(
-          /:root\b/g,
-          `.${PANEL_ROOT_CLASS}`,
-        );
-      }
-    },
-    Declaration(decl: Declaration) {
-      const file = decl.source?.input.file ?? "";
-      if (!file.includes(`${path.sep}@recursica${path.sep}`)) return;
-      if (!decl.value.includes("rem")) return;
-      decl.value = decl.value.replace(
-        /(-?\d*\.?\d+)rem\b/g,
-        (_match, n: string) => `${parseFloat(n) * 16}px`,
-      );
-    },
-  };
-}
-
-// The adapter ships its theme stylesheet at the package root but does not
-// list it in package.json "exports", so a normal import is refused.
-const themeCssPath = path.join(
-  rootDir,
-  "node_modules/@recursica/adapter-mantine-v8/recursica_variables_scoped.css",
-);
+// Snippy's Forge export (the theme), in the repo root: imported by
+// src/panel/boot.tsx, and the source of truth the PostCSS check
+// (postcss.config.cjs) validates every Recursica variable against.
+const themeCssPath = path.join(rootDir, "recursica_variables_scoped.css");
 
 // What Snippy itself is built with, for the report header ("Snippy built
 // with"): the adapter's package version, and the Forge versions from the
-// bundled theme stylesheet's header comment. A missing value fails the
+// header comment of the Forge export's stylesheet. A missing value fails the
 // build rather than shipping a wrong one.
 const adapterVersion = (
   JSON.parse(
@@ -92,35 +52,56 @@ function versionDefine(): VitePlugin {
   };
 }
 
-export default defineConfig({
-  plugins: [react(), versionDefine()],
-  resolve: {
-    alias: [{ find: /^recursica-theme\.css/, replacement: themeCssPath }],
-  },
-  css: {
-    postcss: { plugins: [shadowScope()] },
-  },
-  define: {
-    // The adapter reads process.env.NODE_ENV at runtime; a content script
-    // has no `process`.
-    "process.env.NODE_ENV": JSON.stringify("production"),
-  },
-  build: {
-    outDir: "dist/.content",
-    emptyOutDir: true,
-    // Content scripts injected with chrome.scripting.executeScript must be
-    // classic scripts, so the whole panel ships as one self-running IIFE.
-    lib: {
-      entry: path.join(rootDir, "src/content/main.tsx"),
-      formats: ["iife"],
-      name: "Snippy",
-      fileName: () => "content.js",
-    },
-    // Fonts and other assets are inlined into content.js rather than
-    // shipped as separate files - see fonts.ts for why.
-    assetsInlineLimit: Number.MAX_SAFE_INTEGER,
-    cssCodeSplit: false,
-    minify: true,
-    sourcemap: false,
-  },
-});
+// Two builds, chosen by build.js through the mode:
+// - "panel": the extension's own pages - the side panel
+//   (src/panel/sidepanel.html) and the annotation editor's tab
+//   (src/panel/annotate.html) - with their scripts as ES modules and their
+//   fonts as separate files.
+// - "page": the page helper, injected into the reviewed page with
+//   chrome.scripting.executeScript, which only runs classic scripts - so
+//   it ships as one self-running IIFE, page.js.
+export default defineConfig(({ mode }) =>
+  mode === "page"
+    ? {
+        plugins: [versionDefine()],
+        build: {
+          outDir: "dist/.page",
+          emptyOutDir: true,
+          lib: {
+            entry: path.join(rootDir, "src/page/main.ts"),
+            formats: ["iife"],
+            name: "SnippyPage",
+            fileName: () => "page.js",
+          },
+          minify: true,
+          sourcemap: false,
+        },
+      }
+    : {
+        root: path.join(rootDir, "src/panel"),
+        // Relative asset URLs: the page is served from the extension's
+        // own origin, at its root.
+        base: "./",
+        plugins: [react(), versionDefine()],
+        // The PostCSS config sits in the repo root, above this build's
+        // root (src/panel).
+        css: { postcss: rootDir },
+        build: {
+          outDir: path.join(rootDir, "dist/.panel"),
+          emptyOutDir: true,
+          // Two extension pages sharing one bundle: the side panel, and
+          // the annotation editor's tab.
+          rollupOptions: {
+            input: {
+              sidepanel: path.join(rootDir, "src/panel/sidepanel.html"),
+              annotate: path.join(rootDir, "src/panel/annotate.html"),
+            },
+          },
+          // One bundle, read from the extension package on disk, never
+          // downloaded: its size doesn't warrant splitting.
+          chunkSizeWarningLimit: 4096,
+          minify: true,
+          sourcemap: false,
+        },
+      },
+);
