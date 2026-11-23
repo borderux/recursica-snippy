@@ -720,7 +720,7 @@ rendered with React. It contains:
   Forge versions, injected by Vite at build time) is only in hidden
   `snippy-built-with-*` meta tags, so the two are never confused.
 - **Snippy version.** A "Snippy Version: <version>" line in the header
-  (`p.report-meta.report-version`), right below the Environment line and
+  (`p.report-meta.snippy-version`), right below the Environment line and
   styled like it.
 
 ### Report identity
@@ -736,6 +736,27 @@ collision:
 - **The comment number** - one per comment, unique _within_ one report.
   Combined with the guid it identifies a comment within that report only:
   numbers are positions, and a delete renumbers the comments after it.
+
+### Report format version
+
+The report's structure - the classes, data attributes and meta tags a script
+or an AI agent reads - has its own version, `REPORT_FORMAT_VERSION` in
+`lib/report.ts`, written into `<meta name="snippy-report-format">` as
+`<major>.<minor>`. It is separate from Snippy's version: a release that
+leaves the report alone leaves it alone. Any change to that structure bumps
+it, in the same change:
+
+- **Major** - anything that could break a reader of older reports: a class,
+  attribute, meta tag or section renamed, removed or changed in meaning.
+- **Minor** - additions only, which older readers can ignore.
+
+Describe the change in `ai-report-instructions.txt` (which tells readers how
+to treat the versions) and in this section. History:
+
+| Format | Change                                                                    |
+| ------ | ------------------------------------------------------------------------- |
+| 1.1    | The "Snippy Version" header line and the `snippy-report-format` meta tag. |
+| 1.0    | Everything before the tag existed; such reports have no tag.              |
 
 The report's head also carries `<meta name="snippy-version">`, the extension
 version that produced it, for support. The same version shows in the

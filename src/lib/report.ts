@@ -13,6 +13,19 @@ import type { RecursicaDetection } from "./recursica";
 import type { CommentContext, SessionEnvironment } from "./environment";
 import type { CapturedElement, Session } from "./types";
 
+// The version of the report's format - its structure, the classes, data
+// attributes and meta tags a script or an AI agent reads - as
+// "<major>.<minor>", written into <meta name="snippy-report-format">. It is
+// separate from Snippy's own version: a release that leaves the report
+// alone leaves this alone. Bump it with every change to that structure:
+// - major: anything that could break a reader of older reports - a class,
+//   attribute, meta tag or section renamed, removed or changed in meaning.
+// - minor: additions only, which older readers can ignore.
+// Reports made before this tag existed are format 1.0. Describe each change
+// in ai-report-instructions.txt and in ARCHITECTURE.md's Report format.
+// 1.1: the "Snippy Version" header line and this meta tag.
+export const REPORT_FORMAT_VERSION = "1.1";
+
 function escapeHtml(str: string): string {
   const div = document.createElement("div");
   div.textContent = str;
@@ -269,6 +282,7 @@ ${commentsHtml}
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Snippy report</title>
 ${session?.guid ? `<meta name="snippy-session-id" content="${escapeHtml(session.guid)}">` : ""}
+<meta name="snippy-report-format" content="${REPORT_FORMAT_VERSION}">
 <meta name="snippy-version" content="${escapeHtml(__APP_VERSION__)}">
 <meta name="snippy-built-with-adapter-version" content="${escapeHtml(__ADAPTER_VERSION__)}">
 <meta name="snippy-built-with-forge-version" content="${escapeHtml(__FORGE_VERSION__)}">
@@ -285,7 +299,7 @@ ${userName ? `<p class="report-meta">Reviewer: ${escapeHtml(userName)}</p>` : ""
 ${userEmail ? `<p class="report-meta">Email: ${escapeHtml(userEmail)}</p>` : ""}
 ${session?.details ? `<p class="report-meta">Details: ${escapeHtml(session.details)}</p>` : ""}
 ${env.line}
-<p class="report-meta report-version">Snippy Version: ${escapeHtml(__APP_VERSION__)}</p>
+<p class="report-meta snippy-version">Snippy Version: ${escapeHtml(__APP_VERSION__)}</p>
 </div>
 <nav class="toc">
 <h2>Pages reviewed</h2>

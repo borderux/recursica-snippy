@@ -80,7 +80,11 @@ assume none of that is obvious from a local diff alone.
   design (the lightbox is pure CSS, using `:target`) - don't reach for a
   `<script>` tag to solve a report-formatting problem; find the CSS-only or
   build-time way instead. The report is built as a string in
-  `src/lib/report.ts`, not with React
+  `src/lib/report.ts`, not with React. Any change to the report's structure
+  (classes, data attributes, meta tags, sections) bumps
+  `REPORT_FORMAT_VERSION` in the same change - minor for additions, major
+  for anything renamed, removed or changed in meaning (ARCHITECTURE.md,
+  "Report format version")
 - `npm run lint` (ESLint plus `npm run typecheck`) and `npm run format`
   must pass before committing; the pre-commit hook (Husky + lint-staged)
   runs them automatically on staged files, but run them yourself first
