@@ -716,9 +716,12 @@ rendered with React. It contains:
   HTML and styles in collapsible `<details>` sections (no JavaScript), all
   escaped.
 - **Recursica line.** A "Recursica:" line per page, with the same facts in
-  `data-*` attributes, and a separate "Snippy built with" line in the header
-  (Snippy's own version, and the adapter and Forge versions it was built
-  with, injected by Vite at build time) so the two are never confused.
+  `data-*` attributes. What Snippy itself was built with (the adapter and
+  Forge versions, injected by Vite at build time) is only in hidden
+  `snippy-built-with-*` meta tags, so the two are never confused.
+- **Snippy version.** A "Snippy Version: <version>" line in the header
+  (`p.report-meta.report-version`), right below the Environment line and
+  styled like it.
 
 ### Report identity
 
@@ -735,8 +738,8 @@ collision:
   numbers are positions, and a delete renumbers the comments after it.
 
 The report's head also carries `<meta name="snippy-version">`, the extension
-version that produced it, for support. The panel itself shows no version; the
-browser's extension details do.
+version that produced it, for support. The same version shows in the
+report header's "Snippy Version" line, and beside the panel's title.
 
 Sessions saved before either id existed get both backfilled on load by
 `migrateSession()`: a guid is generated, and every existing comment is

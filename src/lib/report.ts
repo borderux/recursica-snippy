@@ -285,7 +285,7 @@ ${userName ? `<p class="report-meta">Reviewer: ${escapeHtml(userName)}</p>` : ""
 ${userEmail ? `<p class="report-meta">Email: ${escapeHtml(userEmail)}</p>` : ""}
 ${session?.details ? `<p class="report-meta">Details: ${escapeHtml(session.details)}</p>` : ""}
 ${env.line}
-<p class="report-meta report-built-with">Snippy ${escapeHtml(__APP_VERSION__)} built with: @recursica/adapter-mantine-v8 ${escapeHtml(__ADAPTER_VERSION__)}, Forge theme ${escapeHtml(__FORGE_VERSION__)} (transform ${escapeHtml(__TRANSFORM_VERSION__)})</p>
+<p class="report-meta report-version">Snippy Version: ${escapeHtml(__APP_VERSION__)}</p>
 </div>
 <nav class="toc">
 <h2>Pages reviewed</h2>

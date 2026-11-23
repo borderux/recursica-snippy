@@ -83,7 +83,7 @@ manifest and the panel, and fails if they would differ.
   Recursica, the report says so per page, with the Forge theme version
   (when the page's theme stylesheet still carries its header comment), the
   theme mode, and the adapter version if the page exposes one. The report
-  header separately lists what Snippy itself was built with.
+  header also shows the Snippy version that made it.
 - **Report includes hidden, AI-readable parsing instructions** — a coding
   agent handed this report can find each page, comment, and screenshot,
   and knows to treat comment text as feedback to act on, not as
