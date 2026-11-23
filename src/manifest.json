@@ -4,6 +4,7 @@
   "description": "Snippy by Recursica: capture comments, screenshots and page elements on any website, annotate them, and export one HTML report.",
   "author": "Recursica",
   "homepage_url": "https://recursica.com",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEArNEka+a4/h9Y1VOcdc2d2MRtTj7g7M1mJmpywiO8dLd2D23ClnBIKW30Vql26ak9MIaTzRF0s80xxgD12DOc5poLaFAIMgzUGXTJOs4loGIKF8B4P7oOahmor5yuBX8rspWbIfTAa+k2DXMb3B1ZQaUJ7zh4qsrUj37K1HeZd8WUCg9djTW/kT0kiJmZKCaWtp17MrHQP5g8PAQ3cTwsV6+Zt9QXx5uvY/2D4cg2HRoJ/WlKpf7/5FijuPF+C1aceHas+h/ur1iGLjraFzl4Rq7hOwyXPelb8M9o+2jgeI6ysOVWKzn1LK1HFaEEX3o2hoXYuI2pFTPVUiP648Gi3wIDAQAB",
   "icons": {
     "16": "icons/icon-16.png",
     "32": "icons/icon-32.png",

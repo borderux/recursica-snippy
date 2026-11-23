@@ -27,7 +27,14 @@ extension to `dist/chrome` (see [Build](#build)).
 ### Extension shell
 
 - **`src/manifest.json`** - The manifest. It carries no `version`; the build
-  writes it. `side_panel.default_path` is `sidepanel.html`.
+  writes it. `side_panel.default_path` is `sidepanel.html`. Its `key` (a
+  public key) pins the extension id to `ccegkeomicoijnkpnfmjijlheblfnigj`.
+  Without it an unpacked extension's id comes from the folder it was loaded
+  from, so loading a new release from another folder made a different
+  extension with its own, empty `chrome.storage.local`. Never change or
+  remove the key: a new id loses every reviewer's saved session. The
+  matching private key is only needed to pack a `.crx`, which Snippy doesn't
+  do, and isn't in the repo.
 - **`src/background.js`** - The service worker, plain unbundled JavaScript,
   with one job: `chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick:
 true })`, so the toolbar icon (and its keyboard command) opens the side
@@ -60,6 +67,9 @@ true })`, so the toolbar icon (and its keyboard command) opens the side
   tab, and the message it sends back when it closes.
 - `useReviewSession.ts` - all session state and saving.
 - `useColorScheme.ts` - follows `prefers-color-scheme` live.
+- `useNewRelease.ts` - the update check (see
+  [Update check](#update-check)): a newer release found on GitHub, shown
+  as a "New Version Available" link after the version in the panel title.
 - `modalPortal.ts` - hands every modal its layer-1 portal container.
 - `dom.ts` - finding things in the panel, the modal `inert` handling, and
   `markPanelNonModal()`.
@@ -97,7 +107,7 @@ and port messages, types only), `capture` (region selection), `element`
 (element picking and serializing), `captureFrame` and `overlay` (the
 overlays' frame and the active overlay), `annotations` and `pen`,
 `environment`, `recursica` (page detection), `report`, `links`, `ids`,
-`format`, `shortcuts`.
+`format`, `shortcuts`, `releases` (the update check).
 
 **The annotation editor** has a fixed toolbar and a bordered, scrolling image
 below it. The toolbar holds the tool control (Select, Pen, Arrow, Numbered
@@ -876,6 +886,28 @@ Type checking is `npm run typecheck`: `tsconfig.json` covers `src/panel`,
 - **Pre-commit** (`.husky/`, `scripts/lint-staged.config.cjs`): lint-staged
   formats staged files with Prettier, lints staged JS and TS with ESLint, and
   runs the type check for staged TypeScript.
+
+## Update check
+
+Snippy is installed unpacked from a release zip, and Chrome never updates
+an unpacked extension. So each time the panel opens, `useNewRelease`
+(`src/lib/releases.ts`) asks GitHub's API for the repository's latest
+release (`/repos/borderux/recursica-snippy/releases/latest`, which leaves
+out drafts and pre-releases). If its tag (`vX.Y.Z`) is a higher version than
+the build's `__APP_VERSION__`, the panel title shows a "New Version
+Available" link to that release's page, opened in a new tab. The reviewer
+installs it as the README's "Updating" section says.
+
+- It is the panel's only network request. It sends nothing about the
+  reviewer or their pages: it is a plain unauthenticated GET, and GitHub's
+  API answers it with CORS headers, so no extra permission is involved.
+- It runs once per panel opening, well within GitHub's 60 unauthenticated
+  requests an hour per address. The answer is kept in memory only.
+- Any failure (offline, rate limited, an unexpected answer, a tag that
+  isn't `X.Y.Z`) shows nothing and reports no error. The link is only ever
+  to a page under the repository's releases.
+- To check the link without publishing a release, have Playwright answer
+  the API request (`context.route`) with a higher `tag_name`.
 
 ## Verification methodology
 

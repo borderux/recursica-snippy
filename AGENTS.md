@@ -47,6 +47,9 @@ assume none of that is obvious from a local diff alone.
   never change its layout
 - Test against `dist/chrome`, never against `src/` - the panel and the page
   helper only exist as the built extension
+- Never change or remove the manifest's `key`: it pins the extension id,
+  and a new id loses every reviewer's saved session (ARCHITECTURE.md,
+  "Extension shell")
 - Keep permissions minimal: `sidePanel`, `scripting`, `storage` and
   `unlimitedStorage`, plus `host_permissions` of `<all_urls>`.
   `unlimitedStorage` is there because screenshots and captured element HTML

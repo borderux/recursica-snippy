@@ -184,3 +184,23 @@ If you're an AI agent making changes here, read [AGENTS.md](AGENTS.md) and
 4. Pin the extension, visit any site, click its toolbar icon — Snippy
    opens in the side panel. Close it with the side panel's own close
    button.
+
+## Updating
+
+Chrome never updates an extension loaded unpacked, so Snippy checks
+GitHub for a newer release each time the panel opens and, when there is
+one, shows a "New Version Available" link next to its version in the
+panel header. To update:
+
+1. Download the new release's zip from
+   [Releases](https://github.com/borderux/recursica-snippy/releases).
+2. Replace the contents of the folder you loaded Snippy from with the
+   unzipped files - the same folder, not a new one beside it.
+3. On `chrome://extensions`, click Snippy's reload button.
+
+Your comments are kept: the manifest's `key` gives Snippy the same
+extension id (`ccegkeomicoijnkpnfmjijlheblfnigj`) whichever folder it is
+loaded from. Versions before the key was added (0.4.0 and earlier) had an
+id that came from their folder, so moving from one of those to a newer
+version starts with an empty session: download a report of any review
+in progress first.

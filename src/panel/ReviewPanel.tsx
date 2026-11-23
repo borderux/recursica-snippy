@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import {
   Button,
   Group,
+  Link,
   Panel,
   Stack,
   Text,
@@ -36,6 +37,7 @@ import { savePageOnly, saveShowImages, type StoredState } from "../lib/storage";
 import type { ReviewComment } from "../lib/types";
 import { useActiveTab } from "./useActiveTab";
 import { useAnnotationTabs } from "./useAnnotationTabs";
+import { useNewRelease } from "./useNewRelease";
 import { usePagePorts } from "./usePagePorts";
 import { useReviewSession } from "./useReviewSession";
 
@@ -75,6 +77,7 @@ interface ReviewPanelProps {
 
 export function ReviewPanel({ portalEl, stored }: ReviewPanelProps) {
   const [toast, setToast] = useState<string | null>(null);
+  const newRelease = useNewRelease();
   const review = useReviewSession({
     initialSession: stored.session,
     initialUserName: stored.userName,
@@ -566,13 +569,28 @@ export function ReviewPanel({ portalEl, stored }: ReviewPanelProps) {
         withinPortal={false}
         // The product name, in sentence case, then the version from
         // package.json (injected at build time) in brackets, as smaller,
-        // low-emphasis text: the theme's caption style.
+        // low-emphasis text: the theme's caption style. When GitHub has a
+        // newer release, a link to it follows (see useNewRelease), opened
+        // in a new tab.
         title={
           <>
             Snippy{" "}
             <Text component="span" variant="caption" emphasis="low">
               (v{__APP_VERSION__})
             </Text>
+            {newRelease && (
+              <>
+                {" "}
+                <Link
+                  href={newRelease.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  aria-label={`New Version Available: Snippy ${newRelease.version}, opens in a new tab`}
+                >
+                  New Version Available
+                </Link>
+              </>
+            )}
           </>
         }
       >
