@@ -564,10 +564,17 @@ export function ReviewPanel({ portalEl, stored }: ReviewPanelProps) {
         onClose={closeSidePanel}
         // Rendered in place, inside the page's layer-0 body, not portaled.
         withinPortal={false}
-        // The product name, in sentence case. The version is not shown in
-        // the panel (the browser's extension details show it); it is in the
-        // report's hidden metadata.
-        title="Snippy"
+        // The product name, in sentence case, then the version from
+        // package.json (injected at build time) in brackets, as smaller,
+        // low-emphasis text: the theme's caption style.
+        title={
+          <>
+            Snippy{" "}
+            <Text component="span" variant="caption" emphasis="low">
+              (v{__APP_VERSION__})
+            </Text>
+          </>
+        }
       >
         {/* Storage could not be read: say so where the list would be. The
             one text in the panel body, and the reason Add is disabled. */}
