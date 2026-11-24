@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import {
   Button,
   Group,
+  Link,
   Panel,
   Stack,
   Text,
@@ -17,6 +18,14 @@ import {
 } from "./components/CommentList";
 import { ConfirmModal } from "./components/ConfirmModal";
 import { DownloadModal, type ReportDetails } from "./components/DownloadModal";
+import { ReportResponses } from "./components/ReportResponses";
+import {
+  deleteReportResponses,
+  hasResponseText,
+  parseResponsesText,
+  saveReportResponses,
+  type ReportResponses as StoredResponses,
+} from "../lib/responses";
 import { ViewOptions } from "./components/ViewOptions";
 import { plural } from "../lib/format";
 import { commentName } from "../lib/ids";
@@ -30,12 +39,15 @@ import {
   forwardKey,
   pageContext,
   pageRecursica,
+  scrollReportTo,
 } from "./pageBridge";
 import { downloadReport, totalCommentCount } from "../lib/report";
 import { savePageOnly, saveShowImages, type StoredState } from "../lib/storage";
 import type { ReviewComment } from "../lib/types";
 import { useActiveTab } from "./useActiveTab";
 import { useAnnotationTabs } from "./useAnnotationTabs";
+import { useNewRelease } from "./useNewRelease";
+import { useReportResponses } from "./useReportResponses";
 import { usePagePorts } from "./usePagePorts";
 import { useReviewSession } from "./useReviewSession";
 
@@ -57,11 +69,22 @@ export function fieldLayout(formLayout: FormLayout) {
 // editor, in its own tab, asks its own questions.)
 type Confirmation =
   | { kind: "delete-comment"; pageKey: string; comment: ReviewComment }
-  | { kind: "start-over" };
+  | { kind: "start-over" }
+  // Paste Responses or Delete Responses, on a report tab, with responses
+  // there to lose.
+  | {
+      kind: "replace-responses";
+      reportKey: string;
+      responses: StoredResponses;
+      count: number;
+    }
+  | { kind: "delete-responses"; reportKey: string };
 
 // The id of the element holding the failed-load message, which is also
 // the disabled Add button's description.
 const LOAD_ERROR_ID = "art-load-error";
+// The id of the text that says the tab is a Snippy report.
+const REPORT_ID = "art-report-tab";
 // The id of the message saying this page can't be commented on, which is
 // then the disabled Add button's description.
 const NO_ACCESS_ID = "art-no-access";
@@ -75,6 +98,7 @@ interface ReviewPanelProps {
 
 export function ReviewPanel({ portalEl, stored }: ReviewPanelProps) {
   const [toast, setToast] = useState<string | null>(null);
+  const newRelease = useNewRelease();
   const review = useReviewSession({
     initialSession: stored.session,
     initialUserName: stored.userName,
@@ -143,7 +167,25 @@ export function ReviewPanel({ portalEl, stored }: ReviewPanelProps) {
   const editorPage =
     editorTabs.find((editor) => editor.tabId === tab?.tabId)?.pageKey ?? null;
 
-  const canComment = !loadFailed && tab?.access === "ok" && pageKey != null;
+  // A downloaded Snippy report: the page helper adds the response controls
+  // to it, and the panel says so in place of the comment list. No comments
+  // are added to a report.
+  const report = tab?.access === "ok" ? tab.report : null;
+  const onReport = report != null;
+  const reportResponses = useReportResponses(report?.key ?? null);
+  // Chrome lets Snippy into files on the computer (file://) only with
+  // "Allow access to file URLs" on, which unpacked extensions have by
+  // default. Checked once: changing it reloads the extension.
+  const [fileAccess, setFileAccess] = useState(true);
+  useEffect(() => {
+    void chrome.extension
+      .isAllowedFileSchemeAccess()
+      .then(setFileAccess)
+      .catch(() => {});
+  }, []);
+
+  const canComment =
+    !loadFailed && tab?.access === "ok" && pageKey != null && !onReport;
   const pageKeyRef = useRef(pageKey);
   useEffect(() => {
     pageKeyRef.current = pageKey;
@@ -434,7 +476,11 @@ export function ReviewPanel({ portalEl, stored }: ReviewPanelProps) {
   const shortcutsLive = !modalOpen && captureTarget == null && !loadFailed;
 
   // Shortcuts pressed with focus on the page come from the page helper.
-  usePagePorts(tabId, shortcutsLive, (id) => shortcutRef.current(id));
+  // In a report the keys are the responder's: shortcuts pressed there are
+  // left alone.
+  usePagePorts(tabId, shortcutsLive && !onReport, (id) =>
+    shortcutRef.current(id),
+  );
 
   // With focus in the panel: one listener for the panel's window, in the
   // capture phase. Only a matching combination is consumed.
@@ -491,11 +537,46 @@ export function ReviewPanel({ portalEl, stored }: ReviewPanelProps) {
     returnFocus("[data-download]", ADD_MENU);
   };
 
+  // Paste Responses and Delete Responses on a report tab. The page helper in
+  // the report follows the stored change.
+  const writeResponses = (key: string, responses: StoredResponses) =>
+    void saveReportResponses(key, responses).catch((err: unknown) =>
+      setToast(`Responses not saved: ${String(err)}`),
+    );
+  const removeResponses = (key: string) =>
+    void deleteReportResponses(key).catch((err: unknown) =>
+      setToast(`Responses not deleted: ${String(err)}`),
+    );
+  const hasResponses = Object.values(reportResponses?.comments ?? {}).some(
+    (e) => e.resolved || hasResponseText(e),
+  );
+  const pasteResponses = (text: string) => {
+    if (!report) return;
+    const parsed = parseResponsesText(text, report);
+    if ("error" in parsed) {
+      setToast(`Responses not pasted: ${parsed.error}`);
+      return;
+    }
+    setToast(null);
+    if (hasResponses)
+      setConfirmation({
+        kind: "replace-responses",
+        reportKey: report.key,
+        responses: parsed.responses,
+        count: parsed.count,
+      });
+    else writeResponses(report.key, parsed.responses);
+  };
+
   const cancelConfirmation = () => {
     const current = confirmation;
     setConfirmation(null);
     if (current?.kind === "delete-comment")
       returnFocus(`[data-delete="${current.comment.id}"]`, ADD_MENU);
+    else if (current?.kind === "replace-responses")
+      returnFocus("[data-paste-responses]");
+    else if (current?.kind === "delete-responses")
+      returnFocus("[data-delete-responses]", "[data-paste-responses]");
     else returnFocus("[data-start-over]", ADD_MENU);
   };
 
@@ -503,7 +584,14 @@ export function ReviewPanel({ portalEl, stored }: ReviewPanelProps) {
     const current = confirmation;
     setConfirmation(null);
     if (!current) return;
-    if (current.kind === "delete-comment") {
+    if (current.kind === "replace-responses") {
+      writeResponses(current.reportKey, current.responses);
+      returnFocus("[data-paste-responses]");
+    } else if (current.kind === "delete-responses") {
+      removeResponses(current.reportKey);
+      // Delete Responses is disabled now there are none.
+      returnFocus("[data-paste-responses]");
+    } else if (current.kind === "delete-comment") {
       review.deleteComment(current.pageKey, current.comment.id);
       // The comment and its menu are gone; the Add menu is the nearest
       // place to continue.
@@ -517,11 +605,23 @@ export function ReviewPanel({ portalEl, stored }: ReviewPanelProps) {
 
   const confirmationCopy = (() => {
     if (!confirmation) return null;
+    if (confirmation.kind === "replace-responses")
+      return {
+        title: "Replace responses?",
+        consequence: `You will lose the current responses. This can't be undone.`,
+        confirmLabel: "Replace",
+      };
+    if (confirmation.kind === "delete-responses")
+      return {
+        title: "Delete all responses?",
+        consequence: "This can't be undone.",
+        confirmLabel: "Delete",
+      };
     if (confirmation.kind === "start-over")
       return {
         title: "Delete all comments?",
-        consequence: `All ${plural(total, "comment", "comments")} and their screenshots, on every page, will be deleted. This can't be undone.`,
-        confirmLabel: "Delete all comments",
+        consequence: `This can't be undone.`,
+        confirmLabel: "Delete",
       };
     const id = commentName(confirmation.comment.commentNumber);
     const Id = commentName(confirmation.comment.commentNumber, true);
@@ -564,10 +664,32 @@ export function ReviewPanel({ portalEl, stored }: ReviewPanelProps) {
         onClose={closeSidePanel}
         // Rendered in place, inside the page's layer-0 body, not portaled.
         withinPortal={false}
-        // The product name, in sentence case. The version is not shown in
-        // the panel (the browser's extension details show it); it is in the
-        // report's hidden metadata.
-        title="Snippy"
+        // The product name, in sentence case, then the version from
+        // package.json (injected at build time) in brackets, as smaller,
+        // low-emphasis text: the theme's caption style. When GitHub has a
+        // newer release, a link to it follows (see useNewRelease), opened
+        // in a new tab.
+        title={
+          <>
+            Snippy{" "}
+            <Text component="span" variant="caption" emphasis="low">
+              (v{__APP_VERSION__})
+            </Text>
+            {newRelease && (
+              <>
+                {" "}
+                <Link
+                  href={newRelease.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  aria-label={`New Version Available: Snippy ${newRelease.version}, opens in a new tab`}
+                >
+                  New Version Available
+                </Link>
+              </>
+            )}
+          </>
+        }
       >
         {/* Storage could not be read: say so where the list would be. The
             one text in the panel body, and the reason Add is disabled. */}
@@ -576,6 +698,26 @@ export function ReviewPanel({ portalEl, stored }: ReviewPanelProps) {
             Your saved comments could not be loaded, so adding comments is
             turned off. Close Snippy and open it again to try again.
           </Text>
+        ) : report ? (
+          // A report: where to respond, Copy Responses, and its comments.
+          <ReportResponses
+            bannerId={REPORT_ID}
+            report={report}
+            responses={reportResponses}
+            onOpenComment={(index) => {
+              if (tabId != null) scrollReportTo(tabId, index);
+            }}
+            onPasteText={pasteResponses}
+            onDelete={() =>
+              setConfirmation({
+                kind: "delete-responses",
+                reportKey: report.key,
+              })
+            }
+            onError={setToast}
+            message={toast}
+            onDismissMessage={() => setToast(null)}
+          />
         ) : (
           // The view options at the top of the scrolling area, above the
           // comments they filter, then the comment list. The whole
@@ -606,6 +748,31 @@ export function ReviewPanel({ portalEl, stored }: ReviewPanelProps) {
                   ? "This tab is Snippy's annotation editor. Switch to a web page to add comments there."
                   : "Snippy can't add comments on this page. Browser pages, the Chrome Web Store and some others can't be reviewed."}
               </Text>
+            )}
+            {/* Snippy can't reach files on the computer: say how to let it,
+                for reviewing local pages and responding to reports. Only
+                said for a tab Snippy couldn't reach. */}
+            {tab?.access === "blocked" && editorPage == null && !fileAccess && (
+              <Stack gap="rec-sm" align="flex-start">
+                <Text>
+                  {tab.localFile
+                    ? "This tab shows a file from your computer."
+                    : "If this tab shows a file from your computer, such as a Snippy report:"}{" "}
+                  To use Snippy on files, turn on "Allow access to file URLs" in
+                  Snippy's settings, then reload the tab.
+                </Text>
+                <Button
+                  variant="outline"
+                  size="small"
+                  onClick={() =>
+                    void chrome.tabs.create({
+                      url: `chrome://extensions/?id=${chrome.runtime.id}`,
+                    })
+                  }
+                >
+                  Open Snippy's settings
+                </Button>
+              </Stack>
             )}
             <CommentList
               onOpenPage={(href) => {
@@ -643,47 +810,50 @@ export function ReviewPanel({ portalEl, stored }: ReviewPanelProps) {
           as a toast.
         */}
         {/* Buttons only, no text (owner decision). */}
-        <Panel.Footer>
-          <Group justify="space-between" wrap="nowrap" gap="rec-sm" w="100%">
-            {/* The footer's two buttons are the default size; every other
+        {/* The footer acts on the review session: not shown on a report. */}
+        {!onReport && (
+          <Panel.Footer>
+            <Group justify="space-between" wrap="nowrap" gap="rec-sm" w="100%">
+              {/* The footer's two buttons are the default size; every other
                 button in the panel is small (owner decision). */}
-            <Button
-              variant="text"
-              disabled={!session}
-              data-start-over="true"
-              onClick={() => setConfirmation({ kind: "start-over" })}
-            >
-              Start over
-            </Button>
-            {/* What the report holds - every comment on every page, not only
+              <Button
+                variant="text"
+                disabled={!session}
+                data-start-over="true"
+                onClick={() => setConfirmation({ kind: "start-over" })}
+              >
+                Start over
+              </Button>
+              {/* What the report holds - every comment on every page, not only
                 the ones showing - is in a tooltip (on hover and keyboard
                 focus) and, for assistive technology, the button's
                 description. With no comments the button is disabled and
                 has none: a disabled button gets no pointer or focus events,
                 and there is nothing to summarise. */}
-            {total > 0 ? (
-              <Tooltip label={reportSummary}>
-                <Button
-                  variant="solid"
-                  data-download="true"
-                  aria-describedby={SUMMARY_ID}
-                  onClick={() => setDownloadOpen(true)}
-                >
+              {total > 0 ? (
+                <Tooltip label={reportSummary}>
+                  <Button
+                    variant="solid"
+                    data-download="true"
+                    aria-describedby={SUMMARY_ID}
+                    onClick={() => setDownloadOpen(true)}
+                  >
+                    Download report
+                  </Button>
+                </Tooltip>
+              ) : (
+                <Button variant="solid" disabled data-download="true">
                   Download report
                 </Button>
-              </Tooltip>
-            ) : (
-              <Button variant="solid" disabled data-download="true">
-                Download report
-              </Button>
-            )}
-            {total > 0 && (
-              <span id={SUMMARY_ID} className="art-sr-only">
-                {reportSummary}
-              </span>
-            )}
-          </Group>
-        </Panel.Footer>
+              )}
+              {total > 0 && (
+                <span id={SUMMARY_ID} className="art-sr-only">
+                  {reportSummary}
+                </span>
+              )}
+            </Group>
+          </Panel.Footer>
+        )}
       </Panel>
 
       {/*
@@ -697,7 +867,9 @@ export function ReviewPanel({ portalEl, stored }: ReviewPanelProps) {
       */}
       {createPortal(
         <div aria-live="assertive" aria-atomic>
-          {toast && (
+          {/* On a report tab the message shows in the panel, above the
+              Responses box (see ReportResponses), instead. */}
+          {toast && !report && (
             <Toast
               variant="error"
               withCloseButton
@@ -730,9 +902,11 @@ export function ReviewPanel({ portalEl, stored }: ReviewPanelProps) {
             describedBy={
               loadFailed
                 ? LOAD_ERROR_ID
-                : tab?.access === "blocked"
-                  ? NO_ACCESS_ID
-                  : undefined
+                : onReport
+                  ? REPORT_ID
+                  : tab?.access === "blocked"
+                    ? NO_ACCESS_ID
+                    : undefined
             }
             busy={captureTarget === "screenshot" || captureTarget === "element"}
             onAddComment={handleAddComment}

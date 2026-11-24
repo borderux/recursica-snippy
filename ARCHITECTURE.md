@@ -27,7 +27,14 @@ extension to `dist/chrome` (see [Build](#build)).
 ### Extension shell
 
 - **`src/manifest.json`** - The manifest. It carries no `version`; the build
-  writes it. `side_panel.default_path` is `sidepanel.html`.
+  writes it. `side_panel.default_path` is `sidepanel.html`. Its `key` (a
+  public key) pins the extension id to `ccegkeomicoijnkpnfmjijlheblfnigj`.
+  Without it an unpacked extension's id comes from the folder it was loaded
+  from, so loading a new release from another folder made a different
+  extension with its own, empty `chrome.storage.local`. Never change or
+  remove the key: a new id loses every reviewer's saved session. The
+  matching private key is only needed to pack a `.crx`, which Snippy doesn't
+  do, and isn't in the repo.
 - **`src/background.js`** - The service worker, plain unbundled JavaScript,
   with one job: `chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick:
 true })`, so the toolbar icon (and its keyboard command) opens the side
@@ -60,6 +67,11 @@ true })`, so the toolbar icon (and its keyboard command) opens the side
   tab, and the message it sends back when it closes.
 - `useReviewSession.ts` - all session state and saving.
 - `useColorScheme.ts` - follows `prefers-color-scheme` live.
+- `useReportResponses.ts` - on a report tab, its stored responses, kept
+  live, for the panel's report view.
+- `useNewRelease.ts` - the update check (see
+  [Update check](#update-check)): a newer release found on GitHub, shown
+  as a "New Version Available" link after the version in the panel title.
 - `modalPortal.ts` - hands every modal its layer-1 portal container.
 - `dom.ts` - finding things in the panel, the modal `inert` handling, and
   `markPanelNonModal()`.
@@ -80,13 +92,17 @@ true })`, so the toolbar icon (and its keyboard command) opens the side
     details every time a report is downloaded.
   - `AnnotationEditor` - see below.
   - `ConfirmModal` - the shared confirmation modal.
+  - `ReportResponses` - the panel on a report tab (see
+    [Responding to a report](#responding-to-a-report)).
   - `useManagedMenu` - menu focus handling (see Adapter workarounds).
 
 ### The page helper (`src/page/`)
 
 `main.ts`, built into `page.js`, a classic script injected into the reviewed
 page. It installs once per document, exposes `globalThis.snippyPage` in the
-extension's isolated world, and draws nothing but the capture overlays. See
+extension's isolated world, and draws nothing but the capture overlays -
+except in a downloaded Snippy report, where `responses.ts` adds the response
+controls (see [Responding to a report](#responding-to-a-report)). See
 [Lifecycle](#lifecycle).
 
 ### Shared modules (`src/lib/`)
@@ -97,7 +113,8 @@ and port messages, types only), `capture` (region selection), `element`
 (element picking and serializing), `captureFrame` and `overlay` (the
 overlays' frame and the active overlay), `annotations` and `pen`,
 `environment`, `recursica` (page detection), `report`, `links`, `ids`,
-`format`, `shortcuts`.
+`format`, `shortcuts`, `releases` (the update check), `responses` (stored
+responses to a report).
 
 **The annotation editor** has a fixed toolbar and a bordered, scrolling image
 below it. The toolbar holds the tool control (Select, Pen, Arrow, Numbered
@@ -161,13 +178,15 @@ open beside it.
 
 ## Lifecycle
 
-Permissions: `sidePanel`, `scripting`, `storage` and `unlimitedStorage`, plus
-`host_permissions` of `<all_urls>`. The host permission is what lets the
+Permissions: `sidePanel`, `scripting`, `storage`, `unlimitedStorage` and
+`clipboardRead`, plus `host_permissions` of `<all_urls>`. The host permission is what lets the
 panel inject the page helper into whatever page the active tab shows, and
 capture it (`captureVisibleTab`), on every site the reviewer moves to.
 `unlimitedStorage` lifts the 10 MB `chrome.storage.local` quota: screenshots
 and captured element HTML live in the session, and a long review would
-otherwise fill it.
+otherwise fill it. `clipboardRead` (owner decision) lets the panel's Paste
+Responses read the clipboard (`navigator.clipboard.readText()`) without a
+permission prompt; it is only read when Paste Responses is pressed.
 
 **The panel.** The toolbar icon opens the side panel (the background sets
 `openPanelOnActionClick`); Chrome's own close button closes it. One panel
@@ -291,7 +310,10 @@ design system is set up as the adapter's `SETUP.md` describes for any app.
 
 **The page.** Snippy writes to the reviewed page only while a capture is
 under way (the overlays) and, once, to remove an in-page panel left by an
-earlier version. It never changes the page's layout.
+earlier version. It never changes the page's layout. The one exception is a
+downloaded Snippy report - Snippy's own file, not someone else's website -
+which gets the response controls while the panel is open (see
+[Responding to a report](#responding-to-a-report)).
 
 ## Adapter workarounds
 
@@ -334,6 +356,13 @@ stands in for.
   the Escape that cancels a confirmation, the download dialog or a capture
   would close Snippy too. Escape anywhere else - in a comment's text box,
   for instance - closes the side panel, as the adapter intends.
+- `ReportResponses.tsx`, the Responses text area - the kit's TextArea
+  with `readOnly` renders a paragraph instead of a text area, which runs the
+  text's lines together, so the collected responses are unreadable. It is
+  the editable TextArea held to the text (a no-op `onChange`, so typing
+  changes nothing) with `aria-readonly`; pasting into it is handled
+  (Paste Responses). Bug: "TextArea readOnly drops line
+  breaks (renders a paragraph)."
 - `dom.ts` `markPanelNonModal` - Panel always renders `role="dialog"
 aria-modal="true"`; this panel is the whole side panel, a region.
 - `dom.ts` `makeBehindModalInert`, and `AnnotationEditor.tsx` making the
@@ -374,6 +403,11 @@ Tokens only, owner-requested. All in `panel.css`:
 - `.art-swatch` - pen colours, fixed because they are baked into screenshots.
 - `.art-sr-only` - there is no visually-hidden utility.
 - `.art-list` - a reset for the list semantics a card set needs.
+- `.art-report-banner` - the banner on a report tab: no banner or alert
+  component. Its background and text are palette 2's lightest tone and its
+  paired text colour (light blue in light mode; in dark mode the theme
+  makes it a deep teal, close to the panel's background), its padding and
+  radius brand tokens. Gap: "No banner or alert component."
 
 ### Theme values
 
@@ -409,7 +443,8 @@ theme, not into Snippy.
   Delete screenshot at the bottom left, apart from Cancel and Save. Gap:
   "Modal.Footer has no slot for a rarely used action on the left."
 - **Several solid buttons on one surface:** the header Add, a card's Add
-  screenshot, and Download report.
+  screenshot, and Download report; on a report tab, Add (disabled there) and
+  Copy Responses.
 - **Download report button** reads just "Download report". A tooltip on hover
   and keyboard focus, also the button's description (`aria-describedby`),
   says what the report holds for the whole session ("12 comments across 3
@@ -508,6 +543,14 @@ because they are identity and preference facts, not session data:
 - `snippyPenColor` - the annotation pen's last colour.
 - `snippyPageOnly`, `snippyShowImages` - the two view checkboxes, both on
   unless stored as `false`.
+- `snippyResponses:session:<session id>` - one per session responded to,
+  shared by every report of that session: the responses, by comment
+  number (see
+  [Responding to a report](#responding-to-a-report)). Written by the page
+  helper in the report's tab and by the panel's Paste and Delete
+  Responses, read by both.
+  Removed when the last mark and reply in it are; otherwise kept, as nothing
+  clears them yet.
 
 ### Annotations
 
@@ -618,12 +661,33 @@ one at all.
 
 ### Comment numbers
 
-Comment numbers are positions. Every comment in the session is numbered 1 to
-N, across all pages, in creation order, with no gaps, and `commentCounter` is
-N. A new comment is N + 1; deleting one renumbers the rest
-(`renumberComments()` in `lib/storage.ts`), so a deleted number is not kept
-back. Sessions saved when numbers were never reused can have gaps, so
-`migrateSession()` renumbers on load, in the order of the old numbers.
+**Rule - do not change:** a comment's number is its permanent, unique id
+within its session, and the session id is the unique id of a Snippy report.
+Together, `<session id>` + comment number identify one comment in every
+report ever downloaded from that session.
+
+- A new comment (including a duplicate) gets `commentCounter + 1`, and the
+  counter moves on. Numbers increase in creation order across all pages.
+- A number is never changed, and never used twice in a session. Deleting a
+  comment leaves a gap (Comment 1, Comment 3, Comment 4) and leaves the
+  counter where it is, so the deleted number is never handed out again.
+- Never renumber comments - not on delete, not on load, not to close gaps.
+  Responses to a report are matched to comments by session and number
+  (see [Responding to a report](#responding-to-a-report)); renumbering
+  would attach a reply to the wrong comment in another report of the same
+  session. A change here also changes what `data-comment-id` means in the
+  report, which is a report format change.
+- Start over starts a new session, with a new id, so its numbers start
+  again at 1 without colliding with the old session's.
+
+`ensureUniqueNumbers()` (`lib/storage.ts`), run by `migrateSession()` on
+load, only repairs data that breaks the rule: a missing or invalid number,
+or one shared by two comments, gets the next unused number (the later
+comment by creation time is the one that moves), and a counter below the
+highest number in use is raised. Good numbers are never touched.
+
+History: from the Recursica rebuild until Snippy 0.4.0, a delete renumbered
+the remaining comments 1 to N. That was a mistake and is reverted.
 
 ### Saving and loading
 
@@ -716,31 +780,56 @@ rendered with React. It contains:
   HTML and styles in collapsible `<details>` sections (no JavaScript), all
   escaped.
 - **Recursica line.** A "Recursica:" line per page, with the same facts in
-  `data-*` attributes, and a separate "Snippy built with" line in the header
-  (Snippy's own version, and the adapter and Forge versions it was built
-  with, injected by Vite at build time) so the two are never confused.
+  `data-*` attributes. What Snippy itself was built with (the adapter and
+  Forge versions, injected by Vite at build time) is only in hidden
+  `snippy-built-with-*` meta tags, so the two are never confused.
+- **Snippy version.** A "Snippy Version: <version>" line in the header
+  (`p.report-meta.snippy-version`), right below the Environment line and
+  styled like it.
 
 ### Report identity
 
-Two ids exist for combining feedback across sessions and tools without
-collision:
+Two ids identify feedback across sessions and tools without collision:
 
 - **`session.guid`** - one per session, generated with
   `crypto.randomUUID()` (falling back to `crypto.getRandomValues()` on plain
   `http://` pages, where `randomUUID()` isn't available). Written into the
   report as a hidden `<meta name="snippy-session-id">`: parsable, never
-  rendered.
-- **The comment number** - one per comment, unique _within_ one report.
-  Combined with the guid it identifies a comment within that report only:
-  numbers are positions, and a delete renumbers the comments after it.
+  rendered. It is the report's unique id: every report downloaded from a
+  session carries the same one, and there is no separate per-file id.
+- **The comment number** - one per comment, permanent and never reused in
+  its session (see [Comment numbers](#comment-numbers)). Combined with the
+  guid it identifies the comment in every report of the session.
+
+### Report format version
+
+The report's structure - the classes, data attributes and meta tags a script
+or an AI agent reads - has its own version, `REPORT_FORMAT_VERSION` in
+`lib/report.ts`, written into `<meta name="snippy-report-format">` as
+`<major>.<minor>`. It is separate from Snippy's version: a release that
+leaves the report alone leaves it alone. Any change to that structure bumps
+it, in the same change:
+
+- **Major** - anything that could break a reader of older reports: a class,
+  attribute, meta tag or section renamed, removed or changed in meaning.
+- **Minor** - additions only, which older readers can ignore.
+
+Describe the change in `ai-report-instructions.txt` (which tells readers how
+to treat the versions) and in this section. History:
+
+| Format | Change                                                                                                                                                                                                                  |
+| ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1.2    | Comment numbers are permanent ids in the session, never reused (so they can have gaps), not positions renumbered on delete. Strictly a change in meaning, kept minor by owner decision: nothing reads reports that way. |
+| 1.1    | The "Snippy Version" header line and the `snippy-report-format` meta tag.                                                                                                                                               |
+| 1.0    | Everything before the tag existed; such reports have no tag.                                                                                                                                                            |
 
 The report's head also carries `<meta name="snippy-version">`, the extension
-version that produced it, for support. The panel itself shows no version; the
-browser's extension details do.
+version that produced it, for support. The same version shows in the
+report header's "Snippy Version" line, and beside the panel's title.
 
 Sessions saved before either id existed get both backfilled on load by
 `migrateSession()`: a guid is generated, and every existing comment is
-numbered oldest to newest (then renumbered 1 to N, as for every session).
+numbered oldest to newest, after the highest number already in use.
 
 ### AI-readable instructions
 
@@ -852,6 +941,150 @@ Type checking is `npm run typecheck`: `tsconfig.json` covers `src/panel`,
 - **Pre-commit** (`.husky/`, `scripts/lint-staged.config.cjs`): lint-staged
   formats staged files with Prettier, lints staged JS and TS with ESLint, and
   runs the type check for staged TypeScript.
+
+## Responding to a report
+
+Whoever receives a report can answer it in the report itself, with Snippy
+open. The report file never changes and stays free of JavaScript: the
+controls come from the page helper, exist only while a panel is open, and
+keep their state in the extension's storage.
+
+- **Detection.** On install the helper (`src/page/responses.ts`,
+  `findReport()`) looks for a report: the `.report-header`, a
+  `snippy-session-id` meta tag, and at least one `.page-section .comment`
+  with a number (`data-comment-id`). The panel asks
+  through `snippyPage.report()` (`pageReport()` in `pageBridge.ts`), and
+  `useActiveTab` carries the answer as `report`.
+- **Report key.** The session is the report's unique id, so a report's key
+  is `session:<snippy-session-id>`: every report of a session shares one
+  set of responses, and a comment's response shows in each of them. Each
+  comment is keyed by its number (`data-comment-id`). Reports from Snippy
+  0.4.0 and earlier, whose numbers could shift, get no special handling.
+- **In the report.** Each comment ends, below its element details and
+  screenshots, with Mark Resolved (a toggle, `aria-pressed`, with a green
+  check in it) and Respond side by side, and the reply box beneath them.
+  Respond opens a 3-row text area (Enter is a new line; it scrolls) and
+  becomes Delete Response, which asks first (`window.confirm`) when there is
+  text. A green check (resolved) and a blue circle (has a reply) show before
+  the comment's number. Both checks are the same small SVG (`checkIcon()`),
+  not a font's ✓, so they look alike whatever font is around them. The collected responses are
+  viewed and copied in the panel, not the report. The only thing added to
+  the header is a message line below the Snippy Version line
+  (`role="alert"`), shown only when saving or loading fails.
+- **Styling.** Owner decision: the report is exempt from the Recursica
+  rules, and its controls are the browser's own buttons and text areas with
+  almost no styling - a small injected stylesheet for spacing, the two
+  marks' colours, and hiding the controls when printed. Every added element
+  carries `data-snippy-response-ui`, and all of them are removed when the
+  helper's port disconnects (the last panel closed).
+- **Saving.** A click saves at once, typing 400 ms after it pauses, and a
+  pending save is written when the box loses focus, the page is hidden or
+  the panel closes. Two reports of the same session, open in two tabs,
+  follow the other tab's changes through `chrome.storage.onChanged`.
+  Nothing can be changed until the saved responses have loaded, so a failed
+  load never writes over them.
+- **Untrusted page.** A genuine report has no scripts, but anyone can send
+  a file that looks like one. The helper's handlers act only on real input
+  (`event.isTrusted`), and the copied text is plain text. Such a page's own
+  scripts can still read what is typed into its boxes, as on any page.
+- **The panel** (`ReportResponses`), in place of the comment list, top to
+  bottom:
+  - a light blue banner ("You're viewing a Snippy report. Respond using
+    buttons in the report. Come back here to review your responses and copy
+    them.")
+  - the collected text, always shown, in a 7-row TextArea labelled
+    "Responses" that scrolls (empty until there are responses)
+  - below it, Copy Responses ("Copied" for two seconds after), Paste
+    Responses and Delete Responses; Copy and Delete are disabled, with "No
+    responses yet", until there are responses. Paste reads the clipboard
+    (`navigator.clipboard.readText()`, allowed by the `clipboardRead`
+    permission; should it still fail, the message says to paste into the
+    box instead), reads
+    it with `parseResponsesText()` and replaces the report's responses with
+    it; pasting into the Responses box (its `onPaste`) does the same. Delete
+    removes them all. Both go through the panel's ConfirmModal ("Replace
+    this report's responses?", "Delete all responses?") when there are
+    responses to lose, and write storage from the panel
+    (`saveReportResponses()`, `deleteReportResponses()`); the page helper in
+    the report follows the change.
+  - a small "Comment List" heading (the theme's h6 style, an `h3` in the
+    outline) over the report's comments by their label, in report order,
+    each with a "Resolved" (success) and/or "Responded" (primary-color)
+    Badge, live from `useReportResponses`. Each label is a Link button that
+    scrolls the report to its comment (`snippyPage.scrollToComment()`,
+    smooth unless reduced motion is preferred).
+
+  The report's summary - key, file name, meta tags and each comment's
+  label, address and first line - comes from `snippyPage.report()` and is
+  sanitised (`sanitizeSummary()`), as the page could be anything that looks
+  like a report. The text is built by `responsesText()`. The panel disables
+  Add (described by the banner), hides the footer, and leaves shortcuts
+  pressed in the report to the page. The review session isn't touched.
+
+- **File access.** Reports open from disk (`file://`), which Chrome lets an
+  extension into only with "Allow access to file URLs" on - on by default
+  for an unpacked extension. With it off, a tab Snippy can't reach shows how
+  to turn it on, with a button to Snippy's settings page.
+- **The responses text** (`responsesText()`), what Copy Responses copies
+  and the Responses box shows, has its own format and version,
+  `RESPONSE_FORMAT_VERSION` in `lib/responses.ts` (currently 1), separate
+  from the report's:
+
+  ```
+  ----------(Start)            the start: 10 dashes and (Start)
+  Snippy Response (v1)         the format version
+  File: snippy-report-1.html
+  Session: <session id>        the report's unique id
+  -----                        exactly 5 dashes, before every comment
+  Comment 1 - Resolved         the label; "- Resolved" when resolved
+  -----
+  Comment 3
+  The reply, any number of lines, blank ones included.
+  ----------(End)              the end: 10 dashes and (End)
+  ```
+
+  Only comments that are resolved or have a reply are written, in report
+  order. Bump the version for any change a reader of older text could
+  misread.
+
+- **Pasting it back** (`parseResponsesText()`): everything up to and
+  including the start is dropped, even mid-line (a pasted email's greeting),
+  with the rest of that line; a start that lost its "(Start)" still counts,
+  as the first 10 dashes. Reading stops at the end - a line starting with 10
+  dashes, "(End)" or not - so a signature after it is ignored; without an
+  end, it reads to the end of the text. The lines between are split at each
+  line that is exactly 5 dashes: the first part is the header, each
+  other part a comment, whose first line is its label (matched to the
+  report's labels; unknown ones are skipped) and the rest, trimmed, its
+  reply. The `File:` line is only for people. Refused with a message: no 10
+  dashes or no version line, a newer version, no `Session:` line (when the
+  report has a session id), a session that differs from the report's - the
+  session is the only id checked, as it is the report's unique id - or no
+  comment of the report's in it. So responses can go from one responder's
+  Snippy to another's, and between reports of the same session. A reply line that is exactly 5
+  dashes would be read as a divider.
+
+## Update check
+
+Snippy is installed unpacked from a release zip, and Chrome never updates
+an unpacked extension. So each time the panel opens, `useNewRelease`
+(`src/lib/releases.ts`) asks GitHub's API for the repository's latest
+release (`/repos/borderux/recursica-snippy/releases/latest`, which leaves
+out drafts and pre-releases). If its tag (`vX.Y.Z`) is a higher version than
+the build's `__APP_VERSION__`, the panel title shows a "New Version
+Available" link to that release's page, opened in a new tab. The reviewer
+installs it as the README's "Updating" section says.
+
+- It is the panel's only network request. It sends nothing about the
+  reviewer or their pages: it is a plain unauthenticated GET, and GitHub's
+  API answers it with CORS headers, so no extra permission is involved.
+- It runs once per panel opening, well within GitHub's 60 unauthenticated
+  requests an hour per address. The answer is kept in memory only.
+- Any failure (offline, rate limited, an unexpected answer, a tag that
+  isn't `X.Y.Z`) shows nothing and reports no error. The link is only ever
+  to a page under the repository's releases.
+- To check the link without publishing a release, have Playwright answer
+  the API request (`context.route`) with a higher `tag_name`.
 
 ## Verification methodology
 

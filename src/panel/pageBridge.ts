@@ -11,6 +11,7 @@
 import type { ElementResult, PageHelper, RegionResult } from "../lib/pageApi";
 import { sanitizeContext, type CommentContext } from "../lib/environment";
 import { sanitizeDetection, type RecursicaDetection } from "../lib/recursica";
+import { sanitizeSummary, type ReportSummary } from "../lib/responses";
 import type { CapturedElement } from "../lib/types";
 
 // Installs the helper in the tab's page unless it is already there.
@@ -81,6 +82,21 @@ export async function pageRecursica(
   } catch {
     return null;
   }
+}
+
+// The Snippy report the tab shows, or null when it shows any other page
+// (or can't be reached).
+export async function pageReport(tabId: number): Promise<ReportSummary | null> {
+  try {
+    return sanitizeSummary(await call(tabId, "report"));
+  } catch {
+    return null;
+  }
+}
+
+// Scrolls the report in the tab to the comment at that position.
+export function scrollReportTo(tabId: number, index: number): void {
+  void call(tabId, "scrollToComment", String(index)).catch(() => {});
 }
 
 // Forwards a key pressed in the panel to the overlay on the page.

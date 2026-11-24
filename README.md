@@ -72,10 +72,11 @@ manifest and the panel, and fails if they would differ.
   unique id), thumbnails that keep each image's shape
   with a full-resolution lightbox. The lightbox is pure CSS (`:target`,
   no JavaScript at all); the whole report has zero `<script>` tags.
-- **Comments are numbered 1 to N** across the session, in the order they
-  were made, with no gaps — deleting one renumbers the rest. Every session
-  also gets its own hidden guid, which with a comment's number identifies
-  that comment within one report.
+- **Every comment gets a permanent number** across the session, in the
+  order they were made. A number is never reused: deleting a comment leaves
+  a gap. Every session also gets its own hidden id, the report's unique id,
+  which with a comment's number identifies that comment in every report of
+  the session.
 - **Asks before anything that can't be undone** — deleting a comment,
   Start over, and in the annotation editor, deleting the screenshot,
   clearing annotations or closing with an unsaved drawing.
@@ -83,7 +84,7 @@ manifest and the panel, and fails if they would differ.
   Recursica, the report says so per page, with the Forge theme version
   (when the page's theme stylesheet still carries its header comment), the
   theme mode, and the adapter version if the page exposes one. The report
-  header separately lists what Snippy itself was built with.
+  header also shows the Snippy version that made it.
 - **Report includes hidden, AI-readable parsing instructions** — a coding
   agent handed this report can find each page, comment, and screenshot,
   and knows to treat comment text as feedback to act on, not as
@@ -184,3 +185,37 @@ If you're an AI agent making changes here, read [AGENTS.md](AGENTS.md) and
 4. Pin the extension, visit any site, click its toolbar icon — Snippy
    opens in the side panel. Close it with the side panel's own close
    button.
+
+## Responding to a report
+
+Open a downloaded report in Chrome with Snippy's panel open. Each comment
+gets **Mark Resolved** and **Respond**: a green check marks a resolved
+comment and a blue circle one with a reply. Snippy's panel lists the
+report's comments with Resolved and Responded badges (click one to scroll
+to it) and shows the collected responses. **Copy Responses** copies them to
+send back to the reviewer; **Paste Responses** loads responses someone
+copied from the same report (replacing the ones there), and **Delete
+Responses** clears them. Responses are saved in Snippy, not in the file, and come back
+whenever the report is opened with Snippy. Snippy needs "Allow access to file
+URLs" on (its details page in `chrome://extensions`) to work on a report
+opened from your computer; it is on by default when loaded unpacked.
+
+## Updating
+
+Chrome never updates an extension loaded unpacked, so Snippy checks
+GitHub for a newer release each time the panel opens and, when there is
+one, shows a "New Version Available" link next to its version in the
+panel header. To update:
+
+1. Download the new release's zip from
+   [Releases](https://github.com/borderux/recursica-snippy/releases).
+2. Replace the contents of the folder you loaded Snippy from with the
+   unzipped files - the same folder, not a new one beside it.
+3. On `chrome://extensions`, click Snippy's reload button.
+
+Your comments are kept: the manifest's `key` gives Snippy the same
+extension id (`ccegkeomicoijnkpnfmjijlheblfnigj`) whichever folder it is
+loaded from. Versions before the key was added (0.4.0 and earlier) had an
+id that came from their folder, so moving from one of those to a newer
+version starts with an empty session: download a report of any review
+in progress first.

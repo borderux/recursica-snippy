@@ -21,12 +21,6 @@ h1 {
   color: #555;
   margin: 0 0 2px;
 }
-/* What Snippy was built with: a footnote to the header, not part of it. */
-.report-built-with {
-  margin-top: 10px;
-  font-size: 11px;
-  color: #888;
-}
 
 .toc {
   margin: 0 0 24px;

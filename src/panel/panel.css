@@ -105,6 +105,26 @@
   overflow: hidden;
 }
 
+/* The banner over a report's comments in the panel (see
+   ReportResponses): the kit has no banner or alert component. Owner
+   decision: light blue, so it stands out. Its colours are the theme's
+   palette 2 lightest tone and the text colour paired with it (light blue
+   in light mode, deep teal in dark), its spacing and radius brand tokens. */
+.art-report-banner {
+  padding: var(--recursica_brand_dimensions_general_md);
+  border-radius: var(--recursica_brand_dimensions_border-radii_default);
+  background: var(--recursica_brand_palettes_palette-2_050_color_tone);
+  color: var(--recursica_brand_palettes_palette-2_050_color_on-tone);
+}
+
+/* The message live region above the Responses box on a report tab (see
+   ReportResponses): space below it, the theme's general default, only
+   while it holds a message - empty, it takes no room. Our own element; the
+   Toast inside it is untouched. */
+.art-message:not(:empty) {
+  margin-bottom: var(--recursica_brand_dimensions_general_default);
+}
+
 /* Text for screen readers only: the reason Save annotations starts
    disabled, as the button's accessible description (no visible helper
    text, by owner decision). */

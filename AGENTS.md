@@ -22,7 +22,8 @@ assume none of that is obvious from a local diff alone.
   the adapter has one
 - The page helper (`src/page/`, built into `page.js`) is the only code that
   runs in the reviewed page. It draws nothing but the capture overlays and
-  holds no state of its own; anything else the panel needs from the page
+  holds no state of its own - except in a downloaded Snippy report, where it
+  adds the response controls (ARCHITECTURE.md, "Responding to a report"); anything else the panel needs from the page
   goes through its API (`src/lib/pageApi.ts`)
 - `src/background.js` stays plain, unbundled JavaScript, copied as-is. It
   is small and has no UI
@@ -47,8 +48,13 @@ assume none of that is obvious from a local diff alone.
   never change its layout
 - Test against `dist/chrome`, never against `src/` - the panel and the page
   helper only exist as the built extension
-- Keep permissions minimal: `sidePanel`, `scripting`, `storage` and
-  `unlimitedStorage`, plus `host_permissions` of `<all_urls>`.
+- Never change or remove the manifest's `key`: it pins the extension id,
+  and a new id loses every reviewer's saved session (ARCHITECTURE.md,
+  "Extension shell")
+- Keep permissions minimal: `sidePanel`, `scripting`, `storage`,
+  `unlimitedStorage` and `clipboardRead`, plus `host_permissions` of
+  `<all_urls>`. `clipboardRead` (owner decision) lets Paste Responses read
+  the clipboard without Chrome asking.
   `unlimitedStorage` is there because screenshots and captured element HTML
   live in the session, and without it a long review hits the 10 MB
   `chrome.storage.local` quota and every save fails. The host permission
@@ -56,6 +62,13 @@ assume none of that is obvious from a local diff alone.
   capture whatever page the active tab shows; the panel only does that
   while it is open. Don't add another permission without raising it as its
   own decision
+- **Comment numbers are permanent - never renumber them.** A comment's
+  number is given once (`commentCounter + 1`), never changed and never
+  reused in its session, even after the comment is deleted (which leaves a
+  gap). The session id is a report's unique id, and session id + comment
+  number identifies a comment in every report of that session; responses
+  to reports depend on it. Don't add a report or file id in its place, and
+  don't close gaps (ARCHITECTURE.md, "Comment numbers")
 - Any change to `session`'s stored shape (see ARCHITECTURE.md's Data model
   section) needs a migration for data already sitting in a real user's
   `chrome.storage.local` from before the change - there is no
@@ -80,7 +93,13 @@ assume none of that is obvious from a local diff alone.
   design (the lightbox is pure CSS, using `:target`) - don't reach for a
   `<script>` tag to solve a report-formatting problem; find the CSS-only or
   build-time way instead. The report is built as a string in
-  `src/lib/report.ts`, not with React
+  `src/lib/report.ts`, not with React. The report, and the response
+  controls the page helper adds to it, are exempt from the Recursica rules
+  (owner decision): plain HTML with almost no styling, never the adapter. Any change to the report's structure
+  (classes, data attributes, meta tags, sections) bumps
+  `REPORT_FORMAT_VERSION` in the same change - minor for additions, major
+  for anything renamed, removed or changed in meaning (ARCHITECTURE.md,
+  "Report format version")
 - `npm run lint` (ESLint plus `npm run typecheck`) and `npm run format`
   must pass before committing; the pre-commit hook (Husky + lint-staged)
   runs them automatically on staged files, but run them yourself first
