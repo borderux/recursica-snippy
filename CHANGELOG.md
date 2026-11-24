@@ -1,5 +1,18 @@
 # snippy
 
+## 0.5.0
+
+### Minor Changes
+
+- de5a230: The panel header now shows a "New Version Available" link next to the version when a newer Snippy has been released on GitHub. Snippy also now has a fixed extension id, so updating by replacing the files in its folder (see the README's "Updating" section) keeps your saved comments. Moving to this version from 0.4.0 or earlier starts with an empty session, so download a report of any review in progress first.
+- de5a230: Comment numbers are permanent again: deleting a comment no longer renumbers the others, and a number is never reused, so "Comment 3" is the same comment in every report from a review session. Deleting a comment now leaves a gap in the numbers. Report format 1.2.
+- de5a230: Respond to a Snippy report: open a downloaded report with Snippy's panel open, and each comment gets Mark Resolved and Respond. Resolved comments show a green check and answered ones a blue circle. The panel shows a banner and the collected replies, with Copy Responses to send them back to the reviewer, Paste Responses to load responses copied from the same report, and Delete Responses, and the report's comments with Resolved and Responded badges. Responses are saved in Snippy, and the report file stays unchanged.
+
+### Patch Changes
+
+- de5a230: The panel header now shows Snippy's version after the title, in smaller grey text, for example "Snippy (v0.4.0)".
+- de5a230: The downloaded report's header now shows a "Snippy Version" line below the Environment line, in place of the "Snippy built with" line that listed the Recursica adapter and Forge theme versions. Reports also carry a hidden format version (`snippy-report-format`, now 1.1) so scripts and AI agents can tell report layouts apart.
+
 ## 0.4.0
 
 ### Minor Changes
