@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { pageKeyFromUrl } from "../lib/pageKey";
-import { ensureHelper } from "./pageBridge";
+import type { ReportSummary } from "../lib/responses";
+import { ensureHelper, pageReport } from "./pageBridge";
 
 // The tab the side panel is showing: the active tab of the panel's own
 // window. One panel serves the whole window, so it follows whichever tab
@@ -15,6 +16,13 @@ export interface ActiveTab {
   // Whether the page helper is installed: "checking" while the page loads,
   // "blocked" when the page refuses scripting.
   access: "checking" | "ok" | "blocked";
+  // The downloaded Snippy report the tab shows, or null for any other
+  // page. In a report the page helper adds the response controls,
+  // and the panel adds no comments.
+  report: ReportSummary | null;
+  // Whether the tab shows a file from the computer (file://), as far as
+  // Chrome lets the panel see its address.
+  localFile: boolean;
 }
 
 export function useActiveTab(): ActiveTab | null {
@@ -42,6 +50,8 @@ export function useActiveTab(): ActiveTab | null {
         windowId: info.windowId,
         pageKey,
         title: info.title ?? "",
+        report: null,
+        localFile: info.url?.startsWith("file:") ?? false,
       };
       if (!pageKey) {
         setTab({ ...base, access: "blocked" });
@@ -52,16 +62,16 @@ export function useActiveTab(): ActiveTab | null {
           ...base,
           // Same page still loading (a reload, a hash change): keep the
           // access it had rather than flicker.
-          access:
-            prev?.tabId === tabId && prev.pageKey === pageKey
-              ? prev.access
-              : "checking",
+          ...(prev?.tabId === tabId && prev.pageKey === pageKey
+            ? { access: prev.access, report: prev.report }
+            : { access: "checking" as const }),
         }));
         return;
       }
       const ok = await ensureHelper(tabId);
+      const report = ok ? await pageReport(tabId) : null;
       if (cancelled || tabId !== current) return;
-      setTab({ ...base, access: ok ? "ok" : "blocked" });
+      setTab({ ...base, access: ok ? "ok" : "blocked", report });
     };
 
     const follow = async () => {

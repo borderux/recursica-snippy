@@ -17,10 +17,12 @@ export function generateGuid(): string {
   return `${hex.slice(0, 4).join("")}-${hex.slice(4, 6).join("")}-${hex.slice(6, 8).join("")}-${hex.slice(8, 10).join("")}-${hex.slice(10, 16).join("")}`;
 }
 
-// The one place a comment's number is turned into text. Comments are
-// numbered 1 to N across the session, in creation order, with no gaps -
-// the stored commentNumber, renumbered after every delete. A number is a
-// position, not a permanent id.
+// The one place a comment's number is turned into text. A comment's
+// number (the stored commentNumber) is its permanent id within its
+// session: given once, in creation order, and never changed or reused -
+// deleting a comment leaves a gap (see ARCHITECTURE.md, "Comment
+// numbers"). With the session id it identifies the comment in every report
+// of that session.
 // formatCommentId is the bare number (the visible heading, and the
 // report's data-comment-id); commentName is how it is referred to in words
 // ("comment 3", "Comment 3").

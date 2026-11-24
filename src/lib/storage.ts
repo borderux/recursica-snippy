@@ -101,7 +101,7 @@ export async function migrateStorageKeys(): Promise<void> {
 // this extension they have had installed, and old-shape data reaching new
 // code has already crashed the panel on load once. The stored shape itself
 // has not changed since the pre-React panel; only optional fields were
-// added, and comment numbers are now kept gapless (see renumberComments).
+// added (and see ensureUniqueNumbers for comment numbers).
 export function migrateSession(raw: unknown): Session | null {
   if (!raw || typeof raw !== "object") return null;
   const session = raw as Session;
@@ -219,23 +219,45 @@ export function migrateSession(raw: unknown): Session | null {
       }
     }
   }
-  // Comments are numbered 1 to N with no gaps. Sessions saved before that
-  // rule kept a deleted comment's number unused, so they are renumbered
-  // here, in the order the old numbers give (which was creation order).
-  renumberComments(session);
+  ensureUniqueNumbers(session);
   return session;
 }
 
-// Numbers every comment in the session 1 to N, across all pages, in
-// creation order, and sets commentCounter to N. The existing numbers give
-// the order (they have always increased with creation); the comment id, a
-// creation timestamp, breaks any tie. Changes the session in place; the
-// stored shape is unchanged. Run after every delete, and on load.
-export function renumberComments(session: Session): Session {
-  const all = Object.values(session.pages).flatMap((page) => page.comments);
-  all.sort((a, b) => a.commentNumber - b.commentNumber || a.id - b.id);
-  all.forEach((comment, i) => (comment.commentNumber = i + 1));
-  session.commentCounter = all.length;
+// RULE - do not change: a comment's number is its permanent, unique id
+// within its session. It is given once (commentCounter + 1) and never
+// changed, and no number is ever used twice in a session - not even after
+// the comment that had it is deleted, which leaves a gap. The session id
+// plus the comment number is what identifies a comment across every report
+// of the session; responses to a report rely on it (ARCHITECTURE.md,
+// "Comment numbers"). Never renumber comments.
+//
+// This only repairs what would break that rule, in place, on load: a
+// number that isn't a positive whole number, or one shared by two comments
+// (the later one, by creation time, gets a new number), and a counter
+// below the highest number in use (so no number is handed out again).
+// Comments that already have good numbers are never touched.
+export function ensureUniqueNumbers(session: Session): Session {
+  const all = Object.values(session.pages)
+    .flatMap((page) => page.comments)
+    .sort((a, b) => a.id - b.id);
+  let counter = Math.max(
+    Number.isInteger(session.commentCounter) ? session.commentCounter : 0,
+    ...all.map((c) =>
+      Number.isInteger(c.commentNumber) && c.commentNumber > 0
+        ? c.commentNumber
+        : 0,
+    ),
+  );
+  const seen = new Set<number>();
+  for (const comment of all) {
+    const n = comment.commentNumber;
+    if (!Number.isInteger(n) || n <= 0 || seen.has(n)) {
+      counter += 1;
+      comment.commentNumber = counter;
+    }
+    seen.add(comment.commentNumber);
+  }
+  session.commentCounter = counter;
   return session;
 }
 

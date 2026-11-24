@@ -5,6 +5,7 @@
 import type { Rect } from "./capture";
 import type { CommentContext } from "./environment";
 import type { RecursicaDetection } from "./recursica";
+import type { ReportSummary } from "./responses";
 import type { ShortcutId } from "./shortcuts";
 import type { CapturedElement } from "./types";
 
@@ -33,6 +34,11 @@ export interface PageHelper {
   detectRecursica(): Promise<RecursicaDetection>;
   key(key: string): boolean;
   cancel(): void;
+  // The Snippy report this page is (see src/page/responses.ts), or null
+  // for any other page.
+  report(): ReportSummary | null;
+  // Scrolls the report to its comment at that position.
+  scrollToComment(index: string): void;
 }
 
 // Messages from the helper to the panel, and from the panel to the helper.

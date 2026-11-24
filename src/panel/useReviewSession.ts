@@ -4,7 +4,7 @@ import {
   type SessionEnvironment,
 } from "../lib/environment";
 import { generateGuid } from "../lib/ids";
-import { renumberComments, saveReviewer, saveSession } from "../lib/storage";
+import { saveReviewer, saveSession } from "../lib/storage";
 import type { RecursicaDetection } from "../lib/recursica";
 import type { ReviewComment, Session } from "../lib/types";
 
@@ -141,8 +141,9 @@ export function useReviewSession({
   useEffect(() => flush, [flush]);
 
   // Creates a comment at the top of the page's list (newest first) and
-  // returns its id. Comments are numbered 1 to N across the whole session,
-  // in creation order, so a new one is always N + 1 (commentCounter is N).
+  // returns its id. Its number is the session's next, commentCounter + 1:
+  // a number is never reused, even after a delete (see ensureUniqueNumbers
+  // in lib/storage.ts - never renumber comments).
   const addComment = useCallback(
     (pageKey: string, title: string, fields: CommentFields = {}) => {
       const base = latest.current ?? newSession();
@@ -239,24 +240,19 @@ export function useReviewSession({
     [commit],
   );
 
-  // Deleting renumbers every remaining comment, so the numbers stay 1 to
-  // N with no gaps: a deleted number is not kept back.
+  // Deleting leaves the other comments' numbers as they are, and the
+  // counter where it is: the deleted number is never used again, so every
+  // number stays one comment's for the life of the session.
   const deleteComment = useCallback(
     (pageKey: string, id: number) => {
       const current = latest.current;
       if (!current?.pages[pageKey]) return;
-      const without = withPageComments(current, pageKey, (comments) =>
-        comments.filter((c) => c.id !== id),
+      commit(
+        withPageComments(current, pageKey, (comments) =>
+          comments.filter((c) => c.id !== id),
+        ),
+        "now",
       );
-      // Fresh comment objects, so the renumbering never changes anything
-      // React is still holding.
-      const pages = Object.fromEntries(
-        Object.entries(without.pages).map(([key, page]) => [
-          key,
-          { ...page, comments: page.comments.map((c) => ({ ...c })) },
-        ]),
-      );
-      commit(renumberComments({ ...without, pages }), "now");
     },
     [commit],
   );

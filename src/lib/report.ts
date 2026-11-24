@@ -24,7 +24,12 @@ import type { CapturedElement, Session } from "./types";
 // Reports made before this tag existed are format 1.0. Describe each change
 // in ai-report-instructions.txt and in ARCHITECTURE.md's Report format.
 // 1.1: the "Snippy Version" header line and this meta tag.
-export const REPORT_FORMAT_VERSION = "1.1";
+// 1.2: a comment's number (data-comment-id, "Comment 3") is its permanent
+//      id in the session - never changed or reused, so numbers can have
+//      gaps. 1.0 and 1.1 reports numbered by position, renumbered on
+//      delete. (Strictly a change in meaning; kept minor by owner decision,
+//      as nothing reads reports that way.)
+export const REPORT_FORMAT_VERSION = "1.2";
 
 function escapeHtml(str: string): string {
   const div = document.createElement("div");
@@ -240,10 +245,10 @@ export function buildReportHtml({
           } else if (comment.screenshot) {
             shotsHtml = `<div class="comment-shots">${shot(comment.screenshot, "Screenshot")}</div>`;
           }
-          // The comment number is its position, 1 to N across the session.
-          // With the hidden session guid (in the head, once) it identifies
-          // a comment within this one report - not across reports, since
-          // a delete renumbers the comments after it.
+          // The comment number is the comment's permanent id in its
+          // session, never reused. With the hidden session guid (in the
+          // head, once) it identifies the comment in every report of the
+          // session.
           const hasNumber = comment.commentNumber != null;
           const commentId = hasNumber
             ? formatCommentId(comment.commentNumber)

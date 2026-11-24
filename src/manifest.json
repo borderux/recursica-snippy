@@ -26,7 +26,13 @@
   "side_panel": {
     "default_path": "sidepanel.html"
   },
-  "permissions": ["sidePanel", "scripting", "storage", "unlimitedStorage"],
+  "permissions": [
+    "sidePanel",
+    "scripting",
+    "storage",
+    "unlimitedStorage",
+    "clipboardRead"
+  ],
   "host_permissions": ["<all_urls>"],
   "commands": {
     "_execute_action": {

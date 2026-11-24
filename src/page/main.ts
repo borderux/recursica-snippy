@@ -2,12 +2,15 @@
 // The panel itself is Chrome's side panel (src/panel), which can't touch
 // the page, so it injects this script into the active tab and calls the
 // API below through chrome.scripting.executeScript (see
-// src/panel/pageBridge.ts). It draws nothing but the capture overlays.
+// src/panel/pageBridge.ts). It draws nothing but the capture overlays -
+// except in a downloaded Snippy report, Snippy's own file, where it adds
+// the response controls (see responses.ts).
 //
 // It also forwards Snippy's keyboard shortcuts pressed while focus is on
 // the page, over a port to the panel. When every panel that could hear it
 // has closed, the port disconnects and the helper removes itself: any
-// overlay is cancelled and the page gets its keys back.
+// overlay is cancelled, any response controls are removed, and the page
+// gets its keys back.
 import { selectRegion } from "../lib/capture";
 import { pickElement, serializeElement, visibleRect } from "../lib/element";
 import { commentContextNow } from "../lib/environment";
@@ -19,6 +22,7 @@ import {
 } from "../lib/pageApi";
 import { detectRecursica } from "../lib/recursica";
 import { matchShortcut } from "../lib/shortcuts";
+import { findReport, mountResponses } from "./responses";
 
 // Two frames, so the page has painted with the overlay gone before the
 // panel captures the visible tab.
@@ -71,8 +75,14 @@ function install(): void {
   };
   window.addEventListener("keydown", onKey, true);
 
+  // A Snippy report gets its response controls for as long as the helper
+  // is here.
+  const report = findReport();
+  const unmountResponses = report ? mountResponses(report) : null;
+
   port.onDisconnect.addListener(() => {
     cancelOverlay();
+    unmountResponses?.();
     window.removeEventListener("keydown", onKey, true);
     delete globalThis.snippyPage;
   });
@@ -111,6 +121,16 @@ function install(): void {
     detectRecursica,
     key: forwardOverlayKey,
     cancel: cancelOverlay,
+    report: () => report?.summary ?? null,
+    scrollToComment: (index) => {
+      const el = report?.els[Number(index)];
+      if (!el) return;
+      const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+      el.scrollIntoView({
+        block: "start",
+        behavior: reduce ? "auto" : "smooth",
+      });
+    },
   };
 }
 

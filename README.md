@@ -72,10 +72,11 @@ manifest and the panel, and fails if they would differ.
   unique id), thumbnails that keep each image's shape
   with a full-resolution lightbox. The lightbox is pure CSS (`:target`,
   no JavaScript at all); the whole report has zero `<script>` tags.
-- **Comments are numbered 1 to N** across the session, in the order they
-  were made, with no gaps — deleting one renumbers the rest. Every session
-  also gets its own hidden guid, which with a comment's number identifies
-  that comment within one report.
+- **Every comment gets a permanent number** across the session, in the
+  order they were made. A number is never reused: deleting a comment leaves
+  a gap. Every session also gets its own hidden id, the report's unique id,
+  which with a comment's number identifies that comment in every report of
+  the session.
 - **Asks before anything that can't be undone** — deleting a comment,
   Start over, and in the annotation editor, deleting the screenshot,
   clearing annotations or closing with an unsaved drawing.
@@ -184,6 +185,20 @@ If you're an AI agent making changes here, read [AGENTS.md](AGENTS.md) and
 4. Pin the extension, visit any site, click its toolbar icon — Snippy
    opens in the side panel. Close it with the side panel's own close
    button.
+
+## Responding to a report
+
+Open a downloaded report in Chrome with Snippy's panel open. Each comment
+gets **Mark Resolved** and **Respond**: a green check marks a resolved
+comment and a blue circle one with a reply. Snippy's panel lists the
+report's comments with Resolved and Responded badges (click one to scroll
+to it) and shows the collected responses. **Copy Responses** copies them to
+send back to the reviewer; **Paste Responses** loads responses someone
+copied from the same report (replacing the ones there), and **Delete
+Responses** clears them. Responses are saved in Snippy, not in the file, and come back
+whenever the report is opened with Snippy. Snippy needs "Allow access to file
+URLs" on (its details page in `chrome://extensions`) to work on a report
+opened from your computer; it is on by default when loaded unpacked.
 
 ## Updating
 
